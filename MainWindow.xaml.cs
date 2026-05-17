@@ -1,0 +1,1552 @@
+using Microsoft.Win32;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using Waifu16K.Models;
+using Waifu16K.Services;
+
+namespace Waifu16K;
+
+public partial class MainWindow : Window
+{
+    private const int DwmwaUseImmersiveDarkMode = 20;
+    private const int DwmwaWindowCornerPreference = 33;
+    private const int DwmwaBorderColor = 34;
+    private const int DwmwaCaptionColor = 35;
+    private const int DwmwaTextColor = 36;
+    private const int DwmwcpRound = 2;
+
+    private readonly ObservableCollection<BatchJob> _jobs = [];
+    private readonly string[] _supportedExtensions = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"];
+    private readonly Stack<ImageState> _undoStack = new();
+    private readonly Stack<ImageState> _redoStack = new();
+    private const double MinZoom = 0.05;
+    private const double MaxZoom = 16.0;
+
+    private BitmapSource? _currentBitmap;
+    private BitmapSource? _originalBitmap;
+    private BitmapSource? _restoreSourceBitmap;
+    private string? _currentPath;
+    private CancellationTokenSource? _queueCancellation;
+
+    private bool _cropMode;
+    private bool _isCropping;
+    private bool _pickChroma;
+    private bool _eraseMode;
+    private bool _restoreMode;
+    private bool _autoRestoreMode;
+    private bool _brushHistoryCaptured;
+    private bool _isPanning;
+    private Point _panStart;
+    private double _panStartHorizontalOffset;
+    private double _panStartVerticalOffset;
+    private double _zoom = 1.0;
+    private Point _cropStart;
+    private Point? _lastBrushPoint;
+    private Color _chromaColor = Colors.White;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+        JobList.ItemsSource = _jobs;
+        ResizeSlider.ValueChanged += (_, _) => ResizeBox.Text = ((int)ResizeSlider.Value).ToString();
+    }
+
+    private void Window_SourceInitialized(object? sender, EventArgs e)
+    {
+        ApplyNativeWindowStyle();
+    }
+
+    protected override void OnStateChanged(EventArgs e)
+    {
+        base.OnStateChanged(e);
+        UpdateMaximizeGlyph();
+    }
+
+    private void Minimize_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+
+    private void MaximizeRestore_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
+    }
+
+    private void Close_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    private void UpdateMaximizeGlyph()
+    {
+        if (MaximizeButton is null)
+        {
+            return;
+        }
+
+        MaximizeButton.ToolTip = WindowState == WindowState.Maximized ? "복원" : "최대화";
+    }
+
+    private void ApplyNativeWindowStyle()
+    {
+        IntPtr handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        int enabled = 1;
+        int cornerPreference = DwmwcpRound;
+        int captionColor = ToColorRef(0x10, 0x10, 0x12);
+        int borderColor = ToColorRef(0x2E, 0x2D, 0x31);
+        int textColor = ToColorRef(0xF4, 0xF0, 0xE8);
+
+        _ = DwmSetWindowAttribute(handle, DwmwaUseImmersiveDarkMode, ref enabled, Marshal.SizeOf<int>());
+        _ = DwmSetWindowAttribute(handle, DwmwaWindowCornerPreference, ref cornerPreference, Marshal.SizeOf<int>());
+        _ = DwmSetWindowAttribute(handle, DwmwaCaptionColor, ref captionColor, Marshal.SizeOf<int>());
+        _ = DwmSetWindowAttribute(handle, DwmwaBorderColor, ref borderColor, Marshal.SizeOf<int>());
+        _ = DwmSetWindowAttribute(handle, DwmwaTextColor, ref textColor, Marshal.SizeOf<int>());
+    }
+
+    private static int ToColorRef(byte r, byte g, byte b)
+    {
+        return r | (g << 8) | (b << 16);
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
+
+    private async void Window_Loaded(object sender, RoutedEventArgs e)
+    {
+        EnginePathBox.Text = Waifu2xService.FindDefaultEngine();
+        OutputFolderBox.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Crita2x");
+        RefreshModelChoices();
+        await LoadGpuChoicesAsync();
+        UpdateQueueText();
+        UpdatePreview(null, null);
+        SetStatus(string.IsNullOrWhiteSpace(EnginePathBox.Text)
+            ? "Waifu2x 엔진 경로를 선택하면 업스케일을 실행할 수 있습니다."
+            : "준비됨");
+    }
+
+    private void OpenImages_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "이미지 추가",
+            Multiselect = true,
+            Filter = "Images|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.tif;*.tiff|All files|*.*"
+        };
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            AddImages(dialog.FileNames);
+        }
+    }
+
+    private void Window_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
+        {
+            AddImages(files);
+        }
+    }
+
+    private void BrowseEngine_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "waifu2x-ncnn-vulkan.exe 선택",
+            Filter = "waifu2x-ncnn-vulkan.exe|waifu2x-ncnn-vulkan.exe|Executable|*.exe|All files|*.*"
+        };
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            EnginePathBox.Text = dialog.FileName;
+            RefreshModelChoices();
+            SetStatus("엔진 경로가 설정되었습니다.");
+        }
+    }
+
+    private void EnginePathBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        RefreshModelChoices();
+    }
+
+    private void RefreshModels_Click(object sender, RoutedEventArgs e)
+    {
+        RefreshModelChoices(showStatus: true);
+    }
+
+    private void ModelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateModelInfo();
+    }
+
+    private void BrowseModelFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "waifu2x 모델 폴더 선택",
+            InitialDirectory = Directory.Exists(Path.GetDirectoryName(EnginePathBox.Text))
+                ? Path.GetDirectoryName(EnginePathBox.Text)
+                : Environment.CurrentDirectory
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        if (!Waifu2xService.IsModelDirectory(dialog.FolderName))
+        {
+            SetStatus("모델 폴더에는 .param/.bin 파일이 필요합니다.");
+            MessageBox.Show(this, "선택한 폴더에서 waifu2x 모델 파일(.param/.bin)을 찾지 못했습니다.", "모델 폴더 오류", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        AddModelChoice(new Waifu2xModelOption($"Custom · {Path.GetFileName(dialog.FolderName)}", dialog.FolderName), select: true);
+        SetStatus($"모델 추가: {Path.GetFileName(dialog.FolderName)}");
+    }
+
+    private void BrowseOutput_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "저장 폴더 선택",
+            InitialDirectory = Directory.Exists(OutputFolderBox.Text)
+                ? OutputFolderBox.Text
+                : Environment.GetFolderPath(Environment.SpecialFolder.MyPictures)
+        };
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            OutputFolderBox.Text = dialog.FolderName;
+        }
+    }
+
+    private async void RunSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (JobList.SelectedItem is BatchJob job)
+        {
+            await RunJobsAsync([job]);
+        }
+    }
+
+    private async void RunQueue_Click(object sender, RoutedEventArgs e)
+    {
+        await RunJobsAsync(_jobs.ToArray());
+    }
+
+    private void Cancel_Click(object sender, RoutedEventArgs e)
+    {
+        _queueCancellation?.Cancel();
+        SetStatus("중지 요청됨");
+    }
+
+    private void Undo_Click(object sender, RoutedEventArgs e)
+    {
+        RestoreHistory(_undoStack, _redoStack, "실행 취소");
+    }
+
+    private void Redo_Click(object sender, RoutedEventArgs e)
+    {
+        RestoreHistory(_redoStack, _undoStack, "다시 실행");
+    }
+
+    private void ClearQueue_Click(object sender, RoutedEventArgs e)
+    {
+        _jobs.Clear();
+        UpdateQueueText();
+        ClearCurrentImage();
+    }
+
+    private void RemoveSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (JobList.SelectedItem is not BatchJob job)
+        {
+            return;
+        }
+
+        int index = JobList.SelectedIndex;
+        _jobs.Remove(job);
+        UpdateQueueText();
+
+        if (_jobs.Count == 0)
+        {
+            ClearCurrentImage();
+        }
+        else
+        {
+            JobList.SelectedIndex = Math.Clamp(index, 0, _jobs.Count - 1);
+        }
+    }
+
+    private void JobList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (JobList.SelectedItem is not BatchJob job)
+        {
+            return;
+        }
+
+        string path = File.Exists(job.OutputPath) ? job.OutputPath! : job.FilePath;
+        LoadImage(path);
+    }
+
+    private void RemoveBg_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        PushUndo();
+        _currentBitmap = BackgroundRemovalService.RemoveBorderBackground(
+            _currentBitmap!,
+            (int)ToleranceSlider.Value,
+            (int)SoftnessSlider.Value);
+        UpdatePreview(_currentBitmap, _currentPath);
+        SetStatus("가장자리 배경을 투명 처리했습니다.");
+    }
+
+    private void PickColor_Click(object sender, RoutedEventArgs e)
+    {
+        _pickChroma = true;
+        _eraseMode = false;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        UpdateBrushButtons();
+        SetStatus("캔버스에서 제거할 색상을 클릭하세요.");
+    }
+
+    private void ChromaKey_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        PushUndo();
+        _currentBitmap = BackgroundRemovalService.ChromaKey(
+            _currentBitmap!,
+            _chromaColor,
+            (int)ToleranceSlider.Value,
+            (int)SoftnessSlider.Value);
+        UpdatePreview(_currentBitmap, _currentPath);
+        SetStatus($"색상 누끼 적용: RGB({_chromaColor.R}, {_chromaColor.G}, {_chromaColor.B})");
+    }
+
+    private void Feather_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        PushUndo();
+        _currentBitmap = BackgroundRemovalService.FeatherAlpha(_currentBitmap!, radius: 2);
+        UpdatePreview(_currentBitmap, _currentPath);
+        SetStatus("가장자리 알파를 부드럽게 정리했습니다.");
+    }
+
+    private void Defringe_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        PushUndo();
+        _currentBitmap = BackgroundRemovalService.Defringe(_currentBitmap!, amount: 55);
+        UpdatePreview(_currentBitmap, _currentPath);
+        SetStatus("반투명 테두리 색을 완화했습니다.");
+    }
+
+    private void Trim_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        PushUndo();
+        Int32Rect trimRect = BitmapEditor.GetTransparentBounds(_currentBitmap!);
+        _currentBitmap = BitmapEditor.Crop(_currentBitmap!, trimRect);
+        if (_restoreSourceBitmap is not null)
+        {
+            _restoreSourceBitmap = BitmapEditor.Crop(_restoreSourceBitmap, trimRect);
+        }
+
+        UpdatePreview(_currentBitmap, _currentPath);
+        SetStatus("투명 여백을 잘랐습니다.");
+    }
+
+    private void Eraser_Click(object sender, RoutedEventArgs e)
+    {
+        _eraseMode = !_eraseMode;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        _pickChroma = false;
+        UpdateBrushState();
+    }
+
+    private void Restore_Click(object sender, RoutedEventArgs e)
+    {
+        _restoreMode = !_restoreMode;
+        _eraseMode = false;
+        _autoRestoreMode = false;
+        _pickChroma = false;
+        UpdateBrushState();
+    }
+
+    private void AutoRestore_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        _autoRestoreMode = !_autoRestoreMode;
+        _eraseMode = false;
+        _restoreMode = false;
+        _pickChroma = false;
+
+        if (_autoRestoreMode && !CanUseAutoRestoreBrush())
+        {
+            _autoRestoreMode = false;
+            UpdateBrushState();
+            SetStatus("자동 복원은 원본과 현재 이미지 크기가 같을 때만 사용할 수 있습니다.");
+            return;
+        }
+
+        UpdateBrushState();
+    }
+
+    private void RotateLeft_Click(object sender, RoutedEventArgs e)
+    {
+        TransformCurrent(bitmap => BitmapEditor.Rotate(bitmap, -90), "왼쪽으로 회전했습니다.");
+    }
+
+    private void RotateRight_Click(object sender, RoutedEventArgs e)
+    {
+        TransformCurrent(bitmap => BitmapEditor.Rotate(bitmap, 90), "오른쪽으로 회전했습니다.");
+    }
+
+    private void FlipHorizontal_Click(object sender, RoutedEventArgs e)
+    {
+        TransformCurrent(BitmapEditor.FlipHorizontal, "좌우 반전했습니다.");
+    }
+
+    private void FlipVertical_Click(object sender, RoutedEventArgs e)
+    {
+        TransformCurrent(BitmapEditor.FlipVertical, "상하 반전했습니다.");
+    }
+
+    private void CropMode_Click(object sender, RoutedEventArgs e)
+    {
+        _cropMode = !_cropMode;
+        _eraseMode = false;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        _pickChroma = false;
+        CropButton.Background = _cropMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+        UpdateBrushButtons();
+        SetStatus(_cropMode ? "캔버스에서 자를 영역을 드래그하세요." : "자르기 선택 해제");
+    }
+
+    private void ApplyCrop_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap() || CropRect.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        PushUndo();
+        double left = Canvas.GetLeft(CropRect);
+        double top = Canvas.GetTop(CropRect);
+        var rect = new Int32Rect(
+            (int)Math.Round(left),
+            (int)Math.Round(top),
+            (int)Math.Round(CropRect.Width),
+            (int)Math.Round(CropRect.Height));
+
+        _currentBitmap = BitmapEditor.Crop(_currentBitmap!, rect);
+        if (_restoreSourceBitmap is not null)
+        {
+            _restoreSourceBitmap = BitmapEditor.Crop(_restoreSourceBitmap, rect);
+        }
+
+        _cropMode = false;
+        CropRect.Visibility = Visibility.Collapsed;
+        UpdatePreview(_currentBitmap, _currentPath);
+        SetStatus("선택 영역으로 잘랐습니다.");
+    }
+
+    private void ResizeApply_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        int longSide = int.TryParse(ResizeBox.Text, out int parsed)
+            ? parsed
+            : (int)ResizeSlider.Value;
+        longSide = Math.Clamp(longSide, 64, 16384);
+
+        double ratio = _currentBitmap!.PixelWidth >= _currentBitmap.PixelHeight
+            ? (double)longSide / _currentBitmap.PixelWidth
+            : (double)longSide / _currentBitmap.PixelHeight;
+
+        PushUndo();
+        int width = Math.Max(1, (int)Math.Round(_currentBitmap.PixelWidth * ratio));
+        int height = Math.Max(1, (int)Math.Round(_currentBitmap.PixelHeight * ratio));
+        _currentBitmap = BitmapEditor.Resize(_currentBitmap, width, height);
+        if (_restoreSourceBitmap is not null)
+        {
+            _restoreSourceBitmap = BitmapEditor.Resize(_restoreSourceBitmap, width, height);
+        }
+
+        UpdatePreview(_currentBitmap, _currentPath);
+        SetStatus($"리사이즈 완료: {width} x {height}");
+    }
+
+    private void ApplyAdjustments_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        var settings = new AdjustmentSettings(
+            BrightnessSlider.Value,
+            ContrastSlider.Value,
+            SaturationSlider.Value,
+            DenoiseSlider.Value,
+            SharpenSlider.Value);
+
+        PushUndo();
+        _currentBitmap = BitmapEditor.ApplyAdjustments(_currentBitmap!, settings);
+        if (_restoreSourceBitmap is not null)
+        {
+            _restoreSourceBitmap = BitmapEditor.ApplyAdjustments(_restoreSourceBitmap, settings);
+        }
+
+        UpdatePreview(_currentBitmap, _currentPath);
+        SetStatus("보정을 적용했습니다.");
+    }
+
+    private void AutoEnhance_Click(object sender, RoutedEventArgs e)
+    {
+        TransformCurrent(BitmapEditor.AutoEnhance, "자동 보정을 적용했습니다.");
+    }
+
+    private void ResetEdits_Click(object sender, RoutedEventArgs e)
+    {
+        if (_originalBitmap is null)
+        {
+            return;
+        }
+
+        PushUndo();
+        _currentBitmap = _originalBitmap;
+        _restoreSourceBitmap = _originalBitmap;
+        ResetInteractionModes();
+        UpdatePreview(_currentBitmap, _currentPath);
+        SetStatus("원본으로 되돌렸습니다.");
+    }
+
+    private void SaveCurrent_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        string initialName = _currentPath is null
+            ? "crita2x.png"
+            : $"{Path.GetFileNameWithoutExtension(_currentPath)}_edit.png";
+        var dialog = new SaveFileDialog
+        {
+            Title = "현재 이미지 저장",
+            FileName = initialName,
+            Filter = "PNG|*.png|JPEG|*.jpg|TIFF|*.tif|BMP|*.bmp"
+        };
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            BitmapEditor.Save(_currentBitmap!, dialog.FileName);
+            SetStatus($"저장 완료: {dialog.FileName}");
+        }
+    }
+
+    private void OpenOutputFolder_Click(object sender, RoutedEventArgs e)
+    {
+        OpenFolder(OutputFolderBox.Text);
+    }
+
+    private void ResetAdvancedSettings_Click(object sender, RoutedEventArgs e)
+    {
+        PresetBox.SelectedIndex = 0;
+        AutoTileBox.IsChecked = true;
+        LoadThreadsBox.Text = "1";
+        ProcThreadsBox.Text = "2";
+        SaveThreadsBox.Text = "2";
+        OutputLocationBox.SelectedIndex = 0;
+        OutputSuffixBox.Text = "_crita2x";
+        AutoPreviewOutputBox.IsChecked = true;
+        ContinueOnErrorBox.IsChecked = true;
+        OpenAfterRunBox.IsChecked = false;
+        CompletionSoundBox.IsChecked = false;
+        SetStatus("세부 설정을 초기화했습니다.");
+    }
+
+    private void ApplyPreset_Click(object sender, RoutedEventArgs e)
+    {
+        switch (GetComboTag(PresetBox, "fast"))
+        {
+            case "anime":
+                SetComboByTag(ModelBox, "models-cunet");
+                SetComboByTag(ScaleBox, "2");
+                SetComboByTag(NoiseBox, "1");
+                SetComboByTag(FormatBox, "png");
+                AutoTileBox.IsChecked = true;
+                TtaBox.IsChecked = true;
+                LoadThreadsBox.Text = "1";
+                ProcThreadsBox.Text = "2";
+                SaveThreadsBox.Text = "2";
+                OutputSuffixBox.Text = "_crita2x_anime_{scale}x";
+                SetStatus("프리셋 적용: 애니 디테일");
+                break;
+
+            case "photo":
+                SetComboByTag(ModelBox, "models-upconv_7_photo");
+                SetComboByTag(ScaleBox, "2");
+                SetComboByTag(NoiseBox, "1");
+                SetComboByTag(FormatBox, "original");
+                AutoTileBox.IsChecked = true;
+                TtaBox.IsChecked = false;
+                LoadThreadsBox.Text = "1";
+                ProcThreadsBox.Text = "2";
+                SaveThreadsBox.Text = "2";
+                OutputSuffixBox.Text = "_crita2x_photo_{scale}x";
+                SetStatus("프리셋 적용: 사진 클린");
+                break;
+
+            case "max":
+                SetComboByTag(ModelBox, "models-cunet");
+                SetComboByTag(ScaleBox, "4");
+                SetComboByTag(NoiseBox, "2");
+                SetComboByTag(FormatBox, "png");
+                AutoTileBox.IsChecked = false;
+                TileSlider.Value = 512;
+                TtaBox.IsChecked = true;
+                LoadThreadsBox.Text = "1";
+                ProcThreadsBox.Text = "4";
+                SaveThreadsBox.Text = "2";
+                OutputSuffixBox.Text = "_crita2x_max_{scale}x";
+                SetStatus("프리셋 적용: 최대 품질");
+                break;
+
+            default:
+                SetComboByTag(ModelBox, "models-cunet");
+                SetComboByTag(ScaleBox, "2");
+                SetComboByTag(NoiseBox, "0");
+                SetComboByTag(FormatBox, "png");
+                AutoTileBox.IsChecked = true;
+                TtaBox.IsChecked = false;
+                LoadThreadsBox.Text = "1";
+                ProcThreadsBox.Text = "2";
+                SaveThreadsBox.Text = "2";
+                OutputSuffixBox.Text = "_crita2x_fast_{scale}x";
+                SetStatus("프리셋 적용: 빠른 확인");
+                break;
+        }
+    }
+
+    private static void OpenFolder(string folder)
+    {
+        if (!Directory.Exists(folder))
+        {
+            Directory.CreateDirectory(folder);
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            Arguments = $"\"{folder}\"",
+            UseShellExecute = true
+        });
+    }
+
+    private void Preview_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (_currentBitmap is null || !Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        Point imagePoint = e.GetPosition(ImageHost);
+        Point viewportPoint = e.GetPosition(PreviewScroller);
+        double factor = e.Delta > 0 ? 1.15 : 1 / 1.15;
+        SetZoom(_zoom * factor, imagePoint, viewportPoint);
+    }
+
+    private void ZoomOut_Click(object sender, RoutedEventArgs e)
+    {
+        SetZoom(_zoom / 1.2);
+    }
+
+    private void ZoomIn_Click(object sender, RoutedEventArgs e)
+    {
+        SetZoom(_zoom * 1.2);
+    }
+
+    private void ZoomActual_Click(object sender, RoutedEventArgs e)
+    {
+        SetZoom(1.0);
+    }
+
+    private void ZoomFit_Click(object sender, RoutedEventArgs e)
+    {
+        FitImageToView();
+    }
+
+    private void SetZoom(double zoom)
+    {
+        SetZoom(zoom, null, null);
+    }
+
+    private void SetZoom(double zoom, Point? imagePoint, Point? viewportPoint)
+    {
+        if (_currentBitmap is null)
+        {
+            return;
+        }
+
+        double newZoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        if (Math.Abs(newZoom - _zoom) < 0.0001)
+        {
+            return;
+        }
+
+        _zoom = newZoom;
+        ApplyZoom();
+
+        if (imagePoint is { } anchor && viewportPoint is { } viewport)
+        {
+            ImageHost.UpdateLayout();
+            PreviewScroller.UpdateLayout();
+            PreviewScroller.ScrollToHorizontalOffset((anchor.X * _zoom) - viewport.X);
+            PreviewScroller.ScrollToVerticalOffset((anchor.Y * _zoom) - viewport.Y);
+        }
+    }
+
+    private void ApplyZoom()
+    {
+        PreviewScaleTransform.ScaleX = _zoom;
+        PreviewScaleTransform.ScaleY = _zoom;
+        UpdateZoomText();
+    }
+
+    private void UpdateZoomText()
+    {
+        ZoomText.Text = $"{Math.Round(_zoom * 100)}%";
+    }
+
+    private void FitImageToView()
+    {
+        if (_currentBitmap is null || PreviewScroller.ViewportWidth <= 0 || PreviewScroller.ViewportHeight <= 0)
+        {
+            return;
+        }
+
+        double availableWidth = Math.Max(1, PreviewScroller.ViewportWidth - 24);
+        double availableHeight = Math.Max(1, PreviewScroller.ViewportHeight - 24);
+        double fitZoom = Math.Min(availableWidth / _currentBitmap.PixelWidth, availableHeight / _currentBitmap.PixelHeight);
+        _zoom = Math.Clamp(Math.Min(1.0, fitZoom), MinZoom, MaxZoom);
+        ApplyZoom();
+        ImageHost.UpdateLayout();
+        PreviewScroller.UpdateLayout();
+        PreviewScroller.ScrollToHorizontalOffset(Math.Max(0, (ImageHost.ActualWidth * _zoom - PreviewScroller.ViewportWidth) / 2));
+        PreviewScroller.ScrollToVerticalOffset(Math.Max(0, (ImageHost.ActualHeight * _zoom - PreviewScroller.ViewportHeight) / 2));
+    }
+
+    private void Preview_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!EnsureBitmap() || !TryGetImagePoint(e.GetPosition(ImageHost), out Point imagePoint))
+        {
+            return;
+        }
+
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            _isPanning = true;
+            _panStart = e.GetPosition(PreviewScroller);
+            _panStartHorizontalOffset = PreviewScroller.HorizontalOffset;
+            _panStartVerticalOffset = PreviewScroller.VerticalOffset;
+            ImageHost.Cursor = Cursors.SizeAll;
+            Mouse.Capture(ImageHost);
+            e.Handled = true;
+            return;
+        }
+
+        if (_pickChroma)
+        {
+            _chromaColor = SampleColor(_currentBitmap!, (int)imagePoint.X, (int)imagePoint.Y);
+            _pickChroma = false;
+            SetStatus($"색상 선택: RGB({_chromaColor.R}, {_chromaColor.G}, {_chromaColor.B})");
+            return;
+        }
+
+        if (_eraseMode || _restoreMode || _autoRestoreMode)
+        {
+            Mouse.Capture(ImageHost);
+            ApplyBrush(imagePoint);
+            return;
+        }
+
+        if (_cropMode)
+        {
+            _isCropping = true;
+            _cropStart = imagePoint;
+            Mouse.Capture(ImageHost);
+            CropRect.Visibility = Visibility.Visible;
+            Canvas.SetLeft(CropRect, imagePoint.X);
+            Canvas.SetTop(CropRect, imagePoint.Y);
+            CropRect.Width = 1;
+            CropRect.Height = 1;
+        }
+    }
+
+    private void Preview_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_isPanning && e.LeftButton == MouseButtonState.Pressed)
+        {
+            Point current = e.GetPosition(PreviewScroller);
+            PreviewScroller.ScrollToHorizontalOffset(_panStartHorizontalOffset - (current.X - _panStart.X));
+            PreviewScroller.ScrollToVerticalOffset(_panStartVerticalOffset - (current.Y - _panStart.Y));
+            e.Handled = true;
+            return;
+        }
+
+        Point point = e.GetPosition(ImageHost);
+        if (TryGetImagePoint(point, out Point imagePoint))
+        {
+            UpdateBrushGhost(imagePoint);
+        }
+
+        if (_isCropping && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
+        {
+            double x = Math.Min(_cropStart.X, imagePoint.X);
+            double y = Math.Min(_cropStart.Y, imagePoint.Y);
+            double width = Math.Abs(_cropStart.X - imagePoint.X);
+            double height = Math.Abs(_cropStart.Y - imagePoint.Y);
+            Canvas.SetLeft(CropRect, x);
+            Canvas.SetTop(CropRect, y);
+            CropRect.Width = Math.Max(1, width);
+            CropRect.Height = Math.Max(1, height);
+        }
+        else if ((_eraseMode || _restoreMode || _autoRestoreMode) && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
+        {
+            ApplyBrush(imagePoint);
+        }
+    }
+
+    private void Preview_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        _isCropping = false;
+        _isPanning = false;
+        _brushHistoryCaptured = false;
+        _lastBrushPoint = null;
+        ImageHost.Cursor = null;
+        Mouse.Capture(null);
+    }
+
+    private void Preview_MouseLeave(object sender, MouseEventArgs e)
+    {
+        BrushGhost.Visibility = Visibility.Collapsed;
+    }
+
+    private void AddImages(IEnumerable<string> paths)
+    {
+        var imagePaths = ExpandPaths(paths)
+            .Where(path => _supportedExtensions.Contains(Path.GetExtension(path).ToLowerInvariant()))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        foreach (string path in imagePaths)
+        {
+            if (_jobs.Any(job => string.Equals(job.FilePath, path, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            _jobs.Add(new BatchJob(path));
+        }
+
+        UpdateQueueText();
+
+        if (_jobs.Count > 0 && JobList.SelectedItem is null)
+        {
+            JobList.SelectedIndex = 0;
+        }
+
+        SetStatus($"{imagePaths.Length}개 이미지를 추가했습니다.");
+    }
+
+    private async Task RunJobsAsync(IReadOnlyCollection<BatchJob> jobs)
+    {
+        if (jobs.Count == 0)
+        {
+            SetStatus("실행할 이미지가 없습니다.");
+            return;
+        }
+
+        var options = BuildWaifu2xOptions();
+        if (!File.Exists(options.EnginePath))
+        {
+            EnginePathBox.Text = Waifu2xService.FindDefaultEngine();
+            RefreshModelChoices();
+            options = BuildWaifu2xOptions();
+        }
+
+        if (!File.Exists(options.EnginePath))
+        {
+            SetStatus("waifu2x-ncnn-vulkan.exe 경로가 필요합니다.");
+            MessageBox.Show(this, "Waifu2x 엔진 경로를 먼저 선택하세요.", "엔진 필요", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        _queueCancellation?.Cancel();
+        _queueCancellation = new CancellationTokenSource();
+        string lastOutputFolder = OutputFolderBox.Text;
+        int completedCount = 0;
+        int failedCount = 0;
+
+        try
+        {
+            foreach (BatchJob job in jobs)
+            {
+                _queueCancellation.Token.ThrowIfCancellationRequested();
+                job.IsRunning = true;
+                job.Progress = 0;
+                job.Status = "실행 중";
+                SetStatus($"업스케일 중: {job.FileName}");
+
+                string outputFolder = GetOutputFolderForJob(job);
+                lastOutputFolder = outputFolder;
+
+                try
+                {
+                    var progress = new Progress<int>(value => job.Progress = value);
+                    string outputPath = await Waifu2xService.RunAsync(
+                        job.FilePath,
+                        outputFolder,
+                        options,
+                        progress,
+                        _queueCancellation.Token);
+
+                    job.OutputPath = outputPath;
+                    job.Progress = 100;
+                    job.Status = "완료";
+                    job.IsRunning = false;
+                    completedCount++;
+
+                    if (AutoPreviewOutputBox.IsChecked == true && ReferenceEquals(JobList.SelectedItem, job))
+                    {
+                        LoadImage(outputPath);
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException && ContinueOnErrorBox.IsChecked == true)
+                {
+                    job.Status = "오류";
+                    job.IsRunning = false;
+                    failedCount++;
+                    SetStatus($"{job.FileName} 실패: {ex.Message}");
+                }
+            }
+
+            SetStatus(failedCount > 0
+                ? $"업스케일 완료: {completedCount}개 완료, {failedCount}개 오류"
+                : "업스케일 완료");
+            if (OpenAfterRunBox.IsChecked == true)
+            {
+                OpenFolder(lastOutputFolder);
+            }
+
+            if (CompletionSoundBox.IsChecked == true)
+            {
+                System.Media.SystemSounds.Asterisk.Play();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            foreach (BatchJob job in jobs.Where(job => job.IsRunning))
+            {
+                job.Status = "중지됨";
+                job.IsRunning = false;
+            }
+
+            SetStatus("실행이 중지되었습니다.");
+        }
+        catch (Exception ex)
+        {
+            foreach (BatchJob job in jobs.Where(job => job.IsRunning))
+            {
+                job.Status = "오류";
+                job.IsRunning = false;
+            }
+
+            SetStatus(ex.Message);
+            MessageBox.Show(this, ex.Message, "실행 오류", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private Waifu2xOptions BuildWaifu2xOptions()
+    {
+        return new Waifu2xOptions(
+            EnginePathBox.Text.Trim(),
+            GetComboTag(ModelBox, "models-cunet"),
+            GetComboInt(ScaleBox, 2),
+            GetComboInt(NoiseBox, 1),
+            AutoTileBox.IsChecked == true ? 0 : (int)TileSlider.Value,
+            GetComboTag(GpuBox, "auto"),
+            GetPositiveInt(LoadThreadsBox.Text, 1, 1, 16),
+            GetPositiveInt(ProcThreadsBox.Text, 2, 1, 16),
+            GetPositiveInt(SaveThreadsBox.Text, 2, 1, 16),
+            TtaBox.IsChecked == true,
+            GetComboTag(FormatBox, "png"),
+            OutputSuffixBox.Text);
+    }
+
+    private string GetOutputFolderForJob(BatchJob job)
+    {
+        string sourceFolder = Path.GetDirectoryName(job.FilePath) ?? OutputFolderBox.Text;
+        return GetComboTag(OutputLocationBox, "fixed") switch
+        {
+            "source" => sourceFolder,
+            "source-subfolder" => Path.Combine(sourceFolder, "Crita2x"),
+            _ => OutputFolderBox.Text
+        };
+    }
+
+    private void RefreshModelChoices(bool showStatus = false)
+    {
+        string selectedModel = GetComboTag(ModelBox, "models-cunet");
+        ModelBox.Items.Clear();
+
+        foreach (Waifu2xModelOption model in Waifu2xService.DiscoverModels(EnginePathBox.Text.Trim()))
+        {
+            AddModelChoice(model, select: false);
+        }
+
+        SetComboByTag(ModelBox, selectedModel);
+        if (ModelBox.SelectedIndex < 0)
+        {
+            SetComboByTag(ModelBox, "models-cunet");
+        }
+
+        if (ModelBox.SelectedIndex < 0 && ModelBox.Items.Count > 0)
+        {
+            ModelBox.SelectedIndex = 0;
+        }
+
+        if (showStatus)
+        {
+            SetStatus($"{ModelBox.Items.Count}개 모델을 불러왔습니다.");
+        }
+
+        UpdateModelInfo();
+    }
+
+    private void AddModelChoice(Waifu2xModelOption model, bool select)
+    {
+        for (int i = 0; i < ModelBox.Items.Count; i++)
+        {
+            if (ModelBox.Items[i] is ComboBoxItem item &&
+                string.Equals(item.Tag?.ToString(), model.ModelPath, StringComparison.OrdinalIgnoreCase))
+            {
+                if (select)
+                {
+                    ModelBox.SelectedIndex = i;
+                }
+
+                return;
+            }
+        }
+
+        var itemToAdd = new ComboBoxItem
+        {
+            Content = model.DisplayName,
+            Tag = model.ModelPath
+        };
+        ModelBox.Items.Add(itemToAdd);
+        if (select)
+        {
+            ModelBox.SelectedItem = itemToAdd;
+        }
+    }
+
+    private void UpdateModelInfo()
+    {
+        if (ModelInfoText is null)
+        {
+            return;
+        }
+
+        string model = GetComboTag(ModelBox, string.Empty);
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            ModelInfoText.Text = "사용 가능한 모델이 없습니다.";
+            return;
+        }
+
+        string engineDirectory = Path.GetDirectoryName(EnginePathBox.Text.Trim()) ?? string.Empty;
+        string resolvedPath = Path.IsPathRooted(model)
+            ? model
+            : Path.Combine(engineDirectory, model);
+        string name = Path.GetFileName(resolvedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
+        ModelInfoText.Text = Waifu2xService.IsModelDirectory(resolvedPath)
+            ? $"{name} · 모델 파일 확인됨"
+            : $"{model} · 실행 시 엔진에서 확인";
+    }
+
+    private async Task LoadGpuChoicesAsync()
+    {
+        string[] gpuNames = await Task.Run(QueryVideoControllerNames);
+
+        GpuBox.Items.Clear();
+        GpuBox.Items.Add(new ComboBoxItem { Content = "자동", Tag = "auto" });
+        GpuBox.Items.Add(new ComboBoxItem { Content = "CPU", Tag = "-1" });
+
+        for (int i = 0; i < gpuNames.Length; i++)
+        {
+            GpuBox.Items.Add(new ComboBoxItem
+            {
+                Content = $"{i} - {gpuNames[i]}",
+                Tag = i.ToString()
+            });
+        }
+
+        if (gpuNames.Length == 0)
+        {
+            GpuBox.Items.Add(new ComboBoxItem { Content = "0 - GPU 0", Tag = "0" });
+        }
+
+        GpuBox.SelectedIndex = 0;
+    }
+
+    private static string[] QueryVideoControllerNames()
+    {
+        try
+        {
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = "-NoProfile -ExecutionPolicy Bypass -Command \"Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            process.Start();
+            string output = process.StandardOutput.ReadToEnd();
+            if (!process.WaitForExit(3000))
+            {
+                process.Kill(entireProcessTree: true);
+            }
+
+            return output
+                .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private void LoadImage(string path)
+    {
+        try
+        {
+            BitmapSource image = BitmapEditor.LoadBitmap(path);
+            _originalBitmap = image;
+            _restoreSourceBitmap = image;
+            _currentBitmap = image;
+            _currentPath = path;
+            ClearHistory();
+            ResetInteractionModes();
+            _zoom = 1.0;
+            UpdatePreview(image, path);
+            Dispatcher.BeginInvoke(new Action(FitImageToView));
+            SetStatus($"불러옴: {Path.GetFileName(path)}");
+        }
+        catch (Exception ex)
+        {
+            SetStatus(ex.Message);
+            MessageBox.Show(this, ex.Message, "이미지 열기 오류", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void UpdatePreview(BitmapSource? bitmap, string? path)
+    {
+        PreviewImage.Source = bitmap;
+        EmptyState.Visibility = bitmap is null ? Visibility.Visible : Visibility.Collapsed;
+        CropRect.Visibility = Visibility.Collapsed;
+
+        if (bitmap is null)
+        {
+            ImageHost.Width = double.NaN;
+            ImageHost.Height = double.NaN;
+            OverlayCanvas.Width = 0;
+            OverlayCanvas.Height = 0;
+            _zoom = 1.0;
+            ApplyZoom();
+            CurrentFileText.Text = "준비됨";
+            ImageInfoText.Text = "";
+            CurrentDetailText.Text = "선택된 이미지 없음";
+            return;
+        }
+
+        ImageHost.Width = bitmap.PixelWidth;
+        ImageHost.Height = bitmap.PixelHeight;
+        OverlayCanvas.Width = bitmap.PixelWidth;
+        OverlayCanvas.Height = bitmap.PixelHeight;
+
+        CurrentFileText.Text = path is null ? "편집 중" : path;
+        ImageInfoText.Text = $"{bitmap.PixelWidth} x {bitmap.PixelHeight}";
+        CurrentDetailText.Text = $"{Path.GetFileName(path ?? "편집 이미지")}\n{bitmap.PixelWidth} x {bitmap.PixelHeight}\n{bitmap.Format}";
+        ApplyZoom();
+    }
+
+    private void ClearCurrentImage()
+    {
+        _currentBitmap = null;
+        _originalBitmap = null;
+        _restoreSourceBitmap = null;
+        _currentPath = null;
+        ClearHistory();
+        ResetInteractionModes();
+        UpdatePreview(null, null);
+    }
+
+    private void PushUndo()
+    {
+        if (_currentBitmap is null)
+        {
+            return;
+        }
+
+        _undoStack.Push(new ImageState(_currentBitmap, _restoreSourceBitmap));
+        TrimHistory(_undoStack, 30);
+        _redoStack.Clear();
+    }
+
+    private void RestoreHistory(Stack<ImageState> from, Stack<ImageState> to, string status)
+    {
+        if (_currentBitmap is null || from.Count == 0)
+        {
+            SetStatus($"{status}할 기록이 없습니다.");
+            return;
+        }
+
+        to.Push(new ImageState(_currentBitmap, _restoreSourceBitmap));
+        ImageState state = from.Pop();
+        _currentBitmap = state.Current;
+        _restoreSourceBitmap = state.RestoreSource;
+        UpdatePreview(_currentBitmap, _currentPath);
+        SetStatus(status);
+    }
+
+    private void ClearHistory()
+    {
+        _undoStack.Clear();
+        _redoStack.Clear();
+        _brushHistoryCaptured = false;
+    }
+
+    private static void TrimHistory<T>(Stack<T> stack, int maxCount)
+    {
+        if (stack.Count <= maxCount)
+        {
+            return;
+        }
+
+        T[] newestFirst = stack.Take(maxCount).ToArray();
+        stack.Clear();
+        for (int i = newestFirst.Length - 1; i >= 0; i--)
+        {
+            stack.Push(newestFirst[i]);
+        }
+    }
+
+    private bool EnsureBitmap()
+    {
+        if (_currentBitmap is not null)
+        {
+            return true;
+        }
+
+        SetStatus("먼저 이미지를 선택하세요.");
+        return false;
+    }
+
+    private void TransformCurrent(Func<BitmapSource, BitmapSource> transform, string status)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        PushUndo();
+        _currentBitmap = transform(_currentBitmap!);
+        if (_restoreSourceBitmap is not null)
+        {
+            _restoreSourceBitmap = transform(_restoreSourceBitmap);
+        }
+
+        UpdatePreview(_currentBitmap, _currentPath);
+        SetStatus(status);
+    }
+
+    private void ApplyBrush(Point imagePoint)
+    {
+        if (_currentBitmap is null)
+        {
+            return;
+        }
+
+        if (_autoRestoreMode && !CanUseAutoRestoreBrush())
+        {
+            _autoRestoreMode = false;
+            _brushHistoryCaptured = false;
+            UpdateBrushState();
+            SetStatus("자동 복원 기준 이미지가 현재 편집 상태와 맞지 않습니다.");
+            return;
+        }
+
+        if (!_brushHistoryCaptured)
+        {
+            PushUndo();
+            _brushHistoryCaptured = true;
+        }
+
+        int radius = (int)BrushSizeSlider.Value;
+        double spacing = Math.Max(2.0, radius * (_autoRestoreMode ? 0.55 : 0.35));
+
+        foreach (Point point in GetBrushStrokePoints(_lastBrushPoint, imagePoint, spacing))
+        {
+            ApplyBrushPoint(point, radius);
+        }
+
+        _lastBrushPoint = imagePoint;
+        UpdatePreview(_currentBitmap, _currentPath);
+        UpdateBrushGhost(imagePoint);
+    }
+
+    private void ApplyBrushPoint(Point point, int radius)
+    {
+        if (_currentBitmap is null)
+        {
+            return;
+        }
+
+        int x = (int)Math.Round(point.X);
+        int y = (int)Math.Round(point.Y);
+        _currentBitmap = _autoRestoreMode
+            ? BitmapEditor.ApplyAutoRestoreBrush(
+                _currentBitmap,
+                _restoreSourceBitmap!,
+                x,
+                y,
+                radius,
+                (int)AutoRestoreSensitivitySlider.Value,
+                AutoRestoreStrengthSlider.Value / 100.0)
+            : BitmapEditor.ApplyAlphaBrush(_currentBitmap, x, y, radius, restore: _restoreMode);
+    }
+
+    private void UpdateBrushGhost(Point imagePoint)
+    {
+        if (!_eraseMode && !_restoreMode && !_autoRestoreMode)
+        {
+            BrushGhost.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        bool restorativeBrush = _restoreMode || _autoRestoreMode;
+        double size = BrushSizeSlider.Value * 2;
+        BrushGhost.Width = size;
+        BrushGhost.Height = size;
+        BrushGhost.Stroke = restorativeBrush ? FindBrush("AccentBrush") : FindBrush("AccentWarmBrush");
+        BrushGhost.Fill = new SolidColorBrush(restorativeBrush ? Color.FromArgb(34, 94, 234, 212) : Color.FromArgb(34, 255, 184, 107));
+        Canvas.SetLeft(BrushGhost, imagePoint.X - (size / 2));
+        Canvas.SetTop(BrushGhost, imagePoint.Y - (size / 2));
+        BrushGhost.Visibility = Visibility.Visible;
+    }
+
+    private static IEnumerable<Point> GetBrushStrokePoints(Point? previous, Point current, double spacing)
+    {
+        if (previous is null)
+        {
+            yield return current;
+            yield break;
+        }
+
+        double dx = current.X - previous.Value.X;
+        double dy = current.Y - previous.Value.Y;
+        double distance = Math.Sqrt((dx * dx) + (dy * dy));
+        int steps = Math.Max(1, (int)Math.Ceiling(distance / spacing));
+
+        for (int i = 1; i <= steps; i++)
+        {
+            double amount = i / (double)steps;
+            yield return new Point(previous.Value.X + (dx * amount), previous.Value.Y + (dy * amount));
+        }
+    }
+
+    private bool CanUseAutoRestoreBrush()
+    {
+        return _currentBitmap is not null
+            && _restoreSourceBitmap is not null
+            && _currentBitmap.PixelWidth == _restoreSourceBitmap.PixelWidth
+            && _currentBitmap.PixelHeight == _restoreSourceBitmap.PixelHeight;
+    }
+
+    private bool TryGetImagePoint(Point hostPoint, out Point imagePoint)
+    {
+        imagePoint = default;
+        if (_currentBitmap is null)
+        {
+            return false;
+        }
+
+        double x = Math.Clamp(hostPoint.X, 0, _currentBitmap.PixelWidth - 1);
+        double y = Math.Clamp(hostPoint.Y, 0, _currentBitmap.PixelHeight - 1);
+        imagePoint = new Point(x, y);
+        return true;
+    }
+
+    private static Color SampleColor(BitmapSource source, int x, int y)
+    {
+        source = BitmapEditor.ToBgra32(source);
+        x = Math.Clamp(x, 0, source.PixelWidth - 1);
+        y = Math.Clamp(y, 0, source.PixelHeight - 1);
+        byte[] pixel = new byte[4];
+        source.CopyPixels(new Int32Rect(x, y, 1, 1), pixel, 4, 0);
+        return Color.FromRgb(pixel[2], pixel[1], pixel[0]);
+    }
+
+    private void UpdateBrushState()
+    {
+        UpdateBrushButtons();
+        SetStatus(_eraseMode ? "지우개 브러시 활성화" : _restoreMode ? "복원 브러시 활성화" : _autoRestoreMode ? "자동 복원 브러시 활성화: 전경으로 판단되는 부분만 복구" : "브러시 해제");
+    }
+
+    private void UpdateBrushButtons()
+    {
+        EraserButton.Background = _eraseMode ? FindBrush("AccentWarmBrush") : FindBrush("PanelLiftBrush");
+        RestoreButton.Background = _restoreMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+        AutoRestoreButton.Background = _autoRestoreMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+    }
+
+    private void ResetInteractionModes()
+    {
+        _cropMode = false;
+        _isCropping = false;
+        _pickChroma = false;
+        _eraseMode = false;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        _lastBrushPoint = null;
+        CropRect.Visibility = Visibility.Collapsed;
+        BrushGhost.Visibility = Visibility.Collapsed;
+        CropButton.Background = FindBrush("PanelLiftBrush");
+        UpdateBrushButtons();
+    }
+
+    private void UpdateQueueText()
+    {
+        QueueCountText.Text = $"{_jobs.Count}개 항목";
+    }
+
+    private void SetStatus(string text)
+    {
+        StatusText.Text = text;
+    }
+
+    private Brush FindBrush(string resourceKey)
+    {
+        return (Brush)FindResource(resourceKey);
+    }
+
+    private static string GetComboTag(ComboBox comboBox, string fallback)
+    {
+        return comboBox.SelectedItem is ComboBoxItem item && item.Tag is not null
+            ? item.Tag.ToString() ?? fallback
+            : fallback;
+    }
+
+    private static int GetComboInt(ComboBox comboBox, int fallback)
+    {
+        return int.TryParse(GetComboTag(comboBox, fallback.ToString()), out int value)
+            ? value
+            : fallback;
+    }
+
+    private static void SetComboByTag(ComboBox comboBox, string tag)
+    {
+        for (int i = 0; i < comboBox.Items.Count; i++)
+        {
+            if (comboBox.Items[i] is ComboBoxItem item &&
+                string.Equals(item.Tag?.ToString(), tag, StringComparison.OrdinalIgnoreCase))
+            {
+                comboBox.SelectedIndex = i;
+                return;
+            }
+        }
+    }
+
+    private static int GetPositiveInt(string text, int fallback, int min, int max)
+    {
+        return int.TryParse(text, out int value)
+            ? Math.Clamp(value, min, max)
+            : fallback;
+    }
+
+    private IEnumerable<string> ExpandPaths(IEnumerable<string> paths)
+    {
+        foreach (string path in paths)
+        {
+            if (Directory.Exists(path))
+            {
+                foreach (string file in Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories))
+                {
+                    yield return file;
+                }
+            }
+            else if (File.Exists(path))
+            {
+                yield return path;
+            }
+        }
+    }
+
+    private sealed record ImageState(BitmapSource Current, BitmapSource? RestoreSource);
+}
