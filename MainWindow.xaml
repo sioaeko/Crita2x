@@ -1096,7 +1096,7 @@
                                 </Grid>
                                 <Button Click="ResizeApply_Click" Margin="0,4,0,12">리사이즈 적용</Button>
 
-                                <TextBlock Text="톤" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="기본 톤" Style="{StaticResource SectionTitle}" />
                                 <TextBlock Text="밝기" Style="{StaticResource ToolLabel}" />
                                 <Slider x:Name="BrightnessSlider" Minimum="-100" Maximum="100" Value="0" />
                                 <TextBlock Text="대비" Style="{StaticResource ToolLabel}" />
@@ -1111,6 +1111,61 @@
                                 <UniformGrid Columns="2" Margin="0,8,0,0">
                                     <Button Click="ApplyAdjustments_Click" Margin="0,0,6,8">보정 적용</Button>
                                     <Button Click="AutoEnhance_Click" Margin="6,0,0,8">자동 보정</Button>
+                                </UniformGrid>
+
+                                <TextBlock Text="색상 HSL" Style="{StaticResource SectionTitle}" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="색상 이동" Style="{StaticResource ToolLabel}" />
+                                    <TextBlock x:Name="HueShiftText"
+                                               Grid.Column="1"
+                                               Text="0°"
+                                               Style="{StaticResource ToolLabel}" />
+                                </Grid>
+                                <Slider x:Name="HueShiftSlider"
+                                        Minimum="-180"
+                                        Maximum="180"
+                                        Value="0"
+                                        TickFrequency="15"
+                                        ValueChanged="HslSlider_ValueChanged" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="채도 보정" Style="{StaticResource ToolLabel}" />
+                                    <TextBlock x:Name="HslSaturationText"
+                                               Grid.Column="1"
+                                               Text="0"
+                                               Style="{StaticResource ToolLabel}" />
+                                </Grid>
+                                <Slider x:Name="HslSaturationSlider"
+                                        Minimum="-100"
+                                        Maximum="100"
+                                        Value="0"
+                                        ValueChanged="HslSlider_ValueChanged" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="명도 보정" Style="{StaticResource ToolLabel}" />
+                                    <TextBlock x:Name="HslLightnessText"
+                                               Grid.Column="1"
+                                               Text="0"
+                                               Style="{StaticResource ToolLabel}" />
+                                </Grid>
+                                <Slider x:Name="HslLightnessSlider"
+                                        Minimum="-100"
+                                        Maximum="100"
+                                        Value="0"
+                                        ValueChanged="HslSlider_ValueChanged" />
+                                <UniformGrid Columns="2" Margin="0,8,0,0">
+                                    <Button Click="ApplyHsl_Click" Margin="0,0,6,8">HSL 적용</Button>
+                                    <Button Click="ResetHsl_Click" Margin="6,0,0,8">초기화</Button>
                                 </UniformGrid>
 
                                 <TextBlock Text="레벨" Style="{StaticResource SectionTitle}" />

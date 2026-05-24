@@ -20,6 +20,11 @@ public sealed record LevelSettings(
     double OutputBlack,
     double OutputWhite);
 
+public sealed record HslSettings(
+    double HueShift,
+    double Saturation,
+    double Lightness);
+
 public sealed record MagicWandSelection(BitmapSource Mask, Int32Rect Bounds, int PixelCount);
 
 public static class BitmapEditor
@@ -527,6 +532,58 @@ public static class BitmapEditor
         {
             byte[] blurred = BoxBlur(pixels, width, height, radius: 1);
             ApplyUnsharpMask(pixels, blurred, sharpen * 1.35);
+        }
+
+        return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
+    }
+
+    public static BitmapSource ApplyHueSaturation(BitmapSource source, HslSettings settings)
+    {
+        source = ToBgra32(source);
+        int width = source.PixelWidth;
+        int height = source.PixelHeight;
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        source.CopyPixels(pixels, stride, 0);
+
+        double hueShift = Math.Clamp(settings.HueShift, -180, 180) / 360.0;
+        double saturationDelta = Math.Clamp(settings.Saturation, -100, 100) / 100.0;
+        double lightnessDelta = Math.Clamp(settings.Lightness, -100, 100) / 100.0;
+
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            if (pixels[i + 3] == 0)
+            {
+                continue;
+            }
+
+            RgbToHsl(
+                pixels[i + 2] / 255.0,
+                pixels[i + 1] / 255.0,
+                pixels[i] / 255.0,
+                out double hue,
+                out double saturation,
+                out double lightness);
+
+            hue = Wrap01(hue + hueShift);
+            saturation = saturationDelta >= 0
+                ? saturation + ((1.0 - saturation) * saturationDelta)
+                : saturation * (1.0 + saturationDelta);
+            lightness = lightnessDelta >= 0
+                ? lightness + ((1.0 - lightness) * lightnessDelta)
+                : lightness * (1.0 + lightnessDelta);
+
+            HslToRgb(
+                hue,
+                Math.Clamp(saturation, 0, 1),
+                Math.Clamp(lightness, 0, 1),
+                out double r,
+                out double g,
+                out double b);
+
+            pixels[i] = ClampToByte(b * 255);
+            pixels[i + 1] = ClampToByte(g * 255);
+            pixels[i + 2] = ClampToByte(r * 255);
         }
 
         return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
@@ -1368,6 +1425,89 @@ public static class BitmapEditor
     private static double ApplyTone(byte value, double brightness, double contrastFactor)
     {
         return (contrastFactor * (value - 128)) + 128 + brightness;
+    }
+
+    private static double Wrap01(double value)
+    {
+        value %= 1.0;
+        return value < 0 ? value + 1.0 : value;
+    }
+
+    private static void RgbToHsl(double r, double g, double b, out double hue, out double saturation, out double lightness)
+    {
+        double max = Math.Max(r, Math.Max(g, b));
+        double min = Math.Min(r, Math.Min(g, b));
+        lightness = (max + min) / 2.0;
+
+        if (Math.Abs(max - min) < 0.000001)
+        {
+            hue = 0;
+            saturation = 0;
+            return;
+        }
+
+        double delta = max - min;
+        saturation = lightness > 0.5
+            ? delta / (2.0 - max - min)
+            : delta / (max + min);
+
+        if (Math.Abs(max - r) < 0.000001)
+        {
+            hue = ((g - b) / delta) + (g < b ? 6.0 : 0.0);
+        }
+        else if (Math.Abs(max - g) < 0.000001)
+        {
+            hue = ((b - r) / delta) + 2.0;
+        }
+        else
+        {
+            hue = ((r - g) / delta) + 4.0;
+        }
+
+        hue /= 6.0;
+    }
+
+    private static void HslToRgb(double hue, double saturation, double lightness, out double r, out double g, out double b)
+    {
+        hue = Wrap01(hue);
+        saturation = Math.Clamp(saturation, 0, 1);
+        lightness = Math.Clamp(lightness, 0, 1);
+        if (saturation <= 0.000001)
+        {
+            r = lightness;
+            g = lightness;
+            b = lightness;
+            return;
+        }
+
+        double q = lightness < 0.5
+            ? lightness * (1.0 + saturation)
+            : lightness + saturation - (lightness * saturation);
+        double p = (2.0 * lightness) - q;
+        r = HueToRgb(p, q, hue + (1.0 / 3.0));
+        g = HueToRgb(p, q, hue);
+        b = HueToRgb(p, q, hue - (1.0 / 3.0));
+    }
+
+    private static double HueToRgb(double p, double q, double t)
+    {
+        t = Wrap01(t);
+        if (t < 1.0 / 6.0)
+        {
+            return p + ((q - p) * 6.0 * t);
+        }
+
+        if (t < 0.5)
+        {
+            return q;
+        }
+
+        if (t < 2.0 / 3.0)
+        {
+            return p + ((q - p) * ((2.0 / 3.0) - t) * 6.0);
+        }
+
+        return p;
     }
 
     private static LevelSettings NormalizeLevels(LevelSettings settings)

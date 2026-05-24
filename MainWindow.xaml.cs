@@ -97,6 +97,7 @@ public partial class MainWindow : Window
     private bool _layerVisibilityEditCaptured;
     private bool _layerLockEditCaptured;
     private bool _suppressLevelsUpdate;
+    private bool _suppressHslUpdate;
 
     public MainWindow()
     {
@@ -105,6 +106,7 @@ public partial class MainWindow : Window
         HistoryList.ItemsSource = _historyEntries;
         LayerList.ItemsSource = _layers;
         ResizeSlider.ValueChanged += (_, _) => ResizeBox.Text = ((int)ResizeSlider.Value).ToString();
+        UpdateHslSummary();
         UpdateLevelsSummary();
     }
 
@@ -1018,6 +1020,43 @@ public partial class MainWindow : Window
         TransformCurrent(BitmapEditor.AutoEnhance, "자동 보정을 적용했습니다.");
     }
 
+    private void ApplyHsl_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        HslSettings settings = GetHslSettings();
+        if (Math.Abs(settings.HueShift) < 0.01
+            && Math.Abs(settings.Saturation) < 0.01
+            && Math.Abs(settings.Lightness) < 0.01)
+        {
+            SetStatus("적용할 HSL 보정 값이 없습니다.");
+            return;
+        }
+
+        PushUndo();
+        if (!SetEditableBitmap(BitmapEditor.ApplyHueSaturation(GetEditableBitmap()!, settings)))
+        {
+            return;
+        }
+
+        if (_restoreSourceBitmap is not null)
+        {
+            _restoreSourceBitmap = BitmapEditor.ApplyHueSaturation(_restoreSourceBitmap, settings);
+        }
+
+        RecordHistory("HSL 보정");
+        SetStatus($"HSL 보정 적용: 색상 {settings.HueShift:F0}°, 채도 {settings.Saturation:F0}, 명도 {settings.Lightness:F0}");
+    }
+
+    private void ResetHsl_Click(object sender, RoutedEventArgs e)
+    {
+        SetHslSettings(new HslSettings(0, 0, 0));
+        SetStatus("HSL 값을 초기화했습니다.");
+    }
+
     private void ApplyLevels_Click(object sender, RoutedEventArgs e)
     {
         if (!EnsureBitmap())
@@ -1055,6 +1094,16 @@ public partial class MainWindow : Window
     {
         SetLevelSliders(new LevelSettings(0, 255, 1.0, 0, 255));
         SetStatus("레벨 값을 초기화했습니다.");
+    }
+
+    private void HslSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_suppressHslUpdate)
+        {
+            return;
+        }
+
+        UpdateHslSummary();
     }
 
     private void LevelsSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -3369,6 +3418,49 @@ public partial class MainWindow : Window
         Canvas.SetTop(CompareBeforeBadge, 12);
         Canvas.SetLeft(CompareAfterBadge, Math.Max(12, width - 58));
         Canvas.SetTop(CompareAfterBadge, 12);
+    }
+
+    private HslSettings GetHslSettings()
+    {
+        return new HslSettings(
+            Math.Clamp(HueShiftSlider.Value, -180, 180),
+            Math.Clamp(HslSaturationSlider.Value, -100, 100),
+            Math.Clamp(HslLightnessSlider.Value, -100, 100));
+    }
+
+    private void SetHslSettings(HslSettings settings)
+    {
+        _suppressHslUpdate = true;
+        try
+        {
+            HueShiftSlider.Value = Math.Clamp(settings.HueShift, -180, 180);
+            HslSaturationSlider.Value = Math.Clamp(settings.Saturation, -100, 100);
+            HslLightnessSlider.Value = Math.Clamp(settings.Lightness, -100, 100);
+        }
+        finally
+        {
+            _suppressHslUpdate = false;
+        }
+
+        UpdateHslSummary();
+    }
+
+    private void UpdateHslSummary()
+    {
+        if (HueShiftText is null
+            || HslSaturationText is null
+            || HslLightnessText is null
+            || HueShiftSlider is null
+            || HslSaturationSlider is null
+            || HslLightnessSlider is null)
+        {
+            return;
+        }
+
+        HslSettings settings = GetHslSettings();
+        HueShiftText.Text = $"{settings.HueShift:F0}°";
+        HslSaturationText.Text = $"{settings.Saturation:F0}";
+        HslLightnessText.Text = $"{settings.Lightness:F0}";
     }
 
     private LevelSettings GetLevelSettings()
