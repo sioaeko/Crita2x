@@ -82,6 +82,7 @@ public partial class MainWindow : Window
     private bool _suppressLayerControlUpdate;
     private bool _layerOpacityEditCaptured;
     private bool _layerVisibilityEditCaptured;
+    private bool _suppressLevelsUpdate;
 
     public MainWindow()
     {
@@ -90,6 +91,7 @@ public partial class MainWindow : Window
         HistoryList.ItemsSource = _historyEntries;
         LayerList.ItemsSource = _layers;
         ResizeSlider.ValueChanged += (_, _) => ResizeBox.Text = ((int)ResizeSlider.Value).ToString();
+        UpdateLevelsSummary();
     }
 
     private void Window_SourceInitialized(object? sender, EventArgs e)
@@ -887,6 +889,58 @@ public partial class MainWindow : Window
     private void AutoEnhance_Click(object sender, RoutedEventArgs e)
     {
         TransformCurrent(BitmapEditor.AutoEnhance, "자동 보정을 적용했습니다.");
+    }
+
+    private void ApplyLevels_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        LevelSettings settings = GetLevelSettings();
+        PushUndo();
+        SetEditableBitmap(BitmapEditor.ApplyLevels(GetEditableBitmap()!, settings));
+        if (_restoreSourceBitmap is not null)
+        {
+            _restoreSourceBitmap = BitmapEditor.ApplyLevels(_restoreSourceBitmap, settings);
+        }
+
+        RecordHistory("레벨 보정");
+        SetStatus("레벨 보정을 적용했습니다.");
+    }
+
+    private void AutoLevels_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        SetLevelSliders(BitmapEditor.CreateAutoLevelSettings(GetEditableBitmap()!));
+        SetStatus("자동 레벨 값을 계산했습니다. 적용 버튼으로 반영하세요.");
+    }
+
+    private void ResetLevels_Click(object sender, RoutedEventArgs e)
+    {
+        SetLevelSliders(new LevelSettings(0, 255, 1.0, 0, 255));
+        SetStatus("레벨 값을 초기화했습니다.");
+    }
+
+    private void LevelsSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_suppressLevelsUpdate)
+        {
+            return;
+        }
+
+        NormalizeLevelSliders();
+        UpdateLevelsSummary();
+    }
+
+    private void HistogramHost_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        UpdateHistogramPreview();
     }
 
     private void ResetEdits_Click(object sender, RoutedEventArgs e)
@@ -2548,6 +2602,7 @@ public partial class MainWindow : Window
             ImageInfoText.Text = "";
             CurrentDetailText.Text = "선택된 이미지 없음";
             UpdateCompareView();
+            UpdateHistogramPreview();
             return;
         }
 
@@ -2561,6 +2616,7 @@ public partial class MainWindow : Window
         CurrentDetailText.Text = $"{Path.GetFileName(path ?? "편집 이미지")}\n{bitmap.PixelWidth} x {bitmap.PixelHeight}\n{bitmap.Format}";
         ApplyZoom();
         UpdateCompareView();
+        UpdateHistogramPreview();
         UpdateSelectionOverlay();
         UpdateGridOverlay();
         UpdateCloneSourceMarker();
@@ -2606,6 +2662,161 @@ public partial class MainWindow : Window
         Canvas.SetTop(CompareBeforeBadge, 12);
         Canvas.SetLeft(CompareAfterBadge, Math.Max(12, width - 58));
         Canvas.SetTop(CompareAfterBadge, 12);
+    }
+
+    private LevelSettings GetLevelSettings()
+    {
+        double inputBlack = Math.Clamp(LevelsBlackSlider.Value, 0, 254);
+        double inputWhite = Math.Clamp(LevelsWhiteSlider.Value, 1, 255);
+        if (inputWhite <= inputBlack)
+        {
+            inputWhite = Math.Min(255, inputBlack + 1);
+        }
+
+        double outputBlack = Math.Clamp(LevelsOutputBlackSlider.Value, 0, 254);
+        double outputWhite = Math.Clamp(LevelsOutputWhiteSlider.Value, 1, 255);
+        if (outputWhite <= outputBlack)
+        {
+            outputWhite = Math.Min(255, outputBlack + 1);
+        }
+
+        return new LevelSettings(
+            inputBlack,
+            inputWhite,
+            Math.Clamp(LevelsGammaSlider.Value, 0.1, 3.0),
+            outputBlack,
+            outputWhite);
+    }
+
+    private void SetLevelSliders(LevelSettings settings)
+    {
+        _suppressLevelsUpdate = true;
+        try
+        {
+            LevelsBlackSlider.Value = Math.Clamp(settings.InputBlack, 0, 254);
+            LevelsWhiteSlider.Value = Math.Clamp(settings.InputWhite, 1, 255);
+            LevelsGammaSlider.Value = Math.Clamp(settings.Gamma, 0.1, 3.0);
+            LevelsOutputBlackSlider.Value = Math.Clamp(settings.OutputBlack, 0, 254);
+            LevelsOutputWhiteSlider.Value = Math.Clamp(settings.OutputWhite, 1, 255);
+        }
+        finally
+        {
+            _suppressLevelsUpdate = false;
+        }
+
+        NormalizeLevelSliders();
+        UpdateLevelsSummary();
+    }
+
+    private void NormalizeLevelSliders()
+    {
+        if (LevelsInputText is null
+            || LevelsBlackSlider is null
+            || LevelsWhiteSlider is null
+            || LevelsOutputBlackSlider is null
+            || LevelsOutputWhiteSlider is null)
+        {
+            return;
+        }
+
+        _suppressLevelsUpdate = true;
+        try
+        {
+            if (LevelsWhiteSlider.Value <= LevelsBlackSlider.Value)
+            {
+                if (LevelsBlackSlider.Value >= 254)
+                {
+                    LevelsBlackSlider.Value = 254;
+                    LevelsWhiteSlider.Value = 255;
+                }
+                else
+                {
+                    LevelsWhiteSlider.Value = LevelsBlackSlider.Value + 1;
+                }
+            }
+
+            if (LevelsOutputWhiteSlider.Value <= LevelsOutputBlackSlider.Value)
+            {
+                if (LevelsOutputBlackSlider.Value >= 254)
+                {
+                    LevelsOutputBlackSlider.Value = 254;
+                    LevelsOutputWhiteSlider.Value = 255;
+                }
+                else
+                {
+                    LevelsOutputWhiteSlider.Value = LevelsOutputBlackSlider.Value + 1;
+                }
+            }
+        }
+        finally
+        {
+            _suppressLevelsUpdate = false;
+        }
+    }
+
+    private void UpdateLevelsSummary()
+    {
+        if (LevelsInputText is null
+            || LevelsGammaText is null
+            || LevelsOutputText is null
+            || LevelsBlackSlider is null
+            || LevelsWhiteSlider is null
+            || LevelsGammaSlider is null
+            || LevelsOutputBlackSlider is null
+            || LevelsOutputWhiteSlider is null)
+        {
+            return;
+        }
+
+        LevelSettings settings = GetLevelSettings();
+        LevelsInputText.Text = $"{settings.InputBlack:F0} - {settings.InputWhite:F0}";
+        LevelsGammaText.Text = $"{settings.Gamma:F2}";
+        LevelsOutputText.Text = $"{settings.OutputBlack:F0} - {settings.OutputWhite:F0}";
+    }
+
+    private void UpdateHistogramPreview()
+    {
+        if (HistogramPath is null)
+        {
+            return;
+        }
+
+        if (_currentBitmap is null)
+        {
+            HistogramPath.Data = null;
+            return;
+        }
+
+        int[] histogram = BitmapEditor.CalculateLuminanceHistogram(_currentBitmap);
+        int max = 0;
+        for (int i = 0; i < histogram.Length; i++)
+        {
+            max = Math.Max(max, histogram[i]);
+        }
+
+        if (max <= 0)
+        {
+            HistogramPath.Data = null;
+            return;
+        }
+
+        var geometry = new StreamGeometry();
+        using (StreamGeometryContext context = geometry.Open())
+        {
+            context.BeginFigure(new Point(0, 1), isFilled: true, isClosed: true);
+            for (int i = 0; i < histogram.Length; i++)
+            {
+                double x = i / 255.0;
+                double normalized = histogram[i] / (double)max;
+                double y = 1.0 - Math.Pow(normalized, 0.42);
+                context.LineTo(new Point(x, y), isStroked: true, isSmoothJoin: false);
+            }
+
+            context.LineTo(new Point(1, 1), isStroked: true, isSmoothJoin: false);
+        }
+
+        geometry.Freeze();
+        HistogramPath.Data = geometry;
     }
 
     private void AddLayer(ImageLayer layer, int? index = null)

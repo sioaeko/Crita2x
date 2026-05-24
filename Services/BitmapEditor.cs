@@ -13,6 +13,13 @@ public sealed record AdjustmentSettings(
     double Denoise,
     double Sharpen);
 
+public sealed record LevelSettings(
+    double InputBlack,
+    double InputWhite,
+    double Gamma,
+    double OutputBlack,
+    double OutputWhite);
+
 public static class BitmapEditor
 {
     public static BitmapSource LoadBitmap(string path)
@@ -197,6 +204,83 @@ public static class BitmapEditor
         }
 
         return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
+    }
+
+    public static BitmapSource ApplyLevels(BitmapSource source, LevelSettings settings)
+    {
+        source = ToBgra32(source);
+        int width = source.PixelWidth;
+        int height = source.PixelHeight;
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        source.CopyPixels(pixels, stride, 0);
+
+        LevelSettings normalized = NormalizeLevels(settings);
+        double inputRange = Math.Max(1.0, normalized.InputWhite - normalized.InputBlack);
+        double outputRange = Math.Max(1.0, normalized.OutputWhite - normalized.OutputBlack);
+        double inverseGamma = 1.0 / normalized.Gamma;
+
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            if (pixels[i + 3] == 0)
+            {
+                continue;
+            }
+
+            pixels[i] = ApplyLevelChannel(pixels[i], normalized.InputBlack, inputRange, inverseGamma, normalized.OutputBlack, outputRange);
+            pixels[i + 1] = ApplyLevelChannel(pixels[i + 1], normalized.InputBlack, inputRange, inverseGamma, normalized.OutputBlack, outputRange);
+            pixels[i + 2] = ApplyLevelChannel(pixels[i + 2], normalized.InputBlack, inputRange, inverseGamma, normalized.OutputBlack, outputRange);
+        }
+
+        return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
+    }
+
+    public static int[] CalculateLuminanceHistogram(BitmapSource source)
+    {
+        source = ToBgra32(source);
+        int width = source.PixelWidth;
+        int height = source.PixelHeight;
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        source.CopyPixels(pixels, stride, 0);
+
+        int[] histogram = new int[256];
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            if (pixels[i + 3] < 8)
+            {
+                continue;
+            }
+
+            int luminance = (int)Math.Round((0.0722 * pixels[i]) + (0.7152 * pixels[i + 1]) + (0.2126 * pixels[i + 2]));
+            histogram[Math.Clamp(luminance, 0, 255)]++;
+        }
+
+        return histogram;
+    }
+
+    public static LevelSettings CreateAutoLevelSettings(BitmapSource source)
+    {
+        int[] histogram = CalculateLuminanceHistogram(source);
+        long total = 0;
+        foreach (int count in histogram)
+        {
+            total += count;
+        }
+
+        if (total <= 0)
+        {
+            return new LevelSettings(0, 255, 1.0, 0, 255);
+        }
+
+        int black = FindHistogramPercentile(histogram, total, 0.006);
+        int white = FindHistogramPercentile(histogram, total, 0.994);
+        if (white <= black + 8)
+        {
+            return new LevelSettings(0, 255, 1.0, 0, 255);
+        }
+
+        return new LevelSettings(black, white, 1.0, 0, 255);
     }
 
     public static BitmapSource AutoEnhance(BitmapSource source)
@@ -941,6 +1025,53 @@ public static class BitmapEditor
     private static double ApplyTone(byte value, double brightness, double contrastFactor)
     {
         return (contrastFactor * (value - 128)) + 128 + brightness;
+    }
+
+    private static LevelSettings NormalizeLevels(LevelSettings settings)
+    {
+        double inputBlack = Math.Clamp(settings.InputBlack, 0, 254);
+        double inputWhite = Math.Clamp(settings.InputWhite, 1, 255);
+        if (inputWhite <= inputBlack)
+        {
+            inputWhite = Math.Min(255, inputBlack + 1);
+        }
+
+        double outputBlack = Math.Clamp(settings.OutputBlack, 0, 254);
+        double outputWhite = Math.Clamp(settings.OutputWhite, 1, 255);
+        if (outputWhite <= outputBlack)
+        {
+            outputWhite = Math.Min(255, outputBlack + 1);
+        }
+
+        return new LevelSettings(
+            inputBlack,
+            inputWhite,
+            Math.Clamp(settings.Gamma, 0.1, 3.0),
+            outputBlack,
+            outputWhite);
+    }
+
+    private static byte ApplyLevelChannel(byte value, double inputBlack, double inputRange, double inverseGamma, double outputBlack, double outputRange)
+    {
+        double normalized = Math.Clamp((value - inputBlack) / inputRange, 0, 1);
+        double corrected = Math.Pow(normalized, inverseGamma);
+        return ClampToByte(outputBlack + (corrected * outputRange));
+    }
+
+    private static int FindHistogramPercentile(int[] histogram, long total, double percentile)
+    {
+        long target = (long)Math.Round(total * Math.Clamp(percentile, 0, 1));
+        long running = 0;
+        for (int i = 0; i < histogram.Length; i++)
+        {
+            running += histogram[i];
+            if (running >= target)
+            {
+                return i;
+            }
+        }
+
+        return histogram.Length - 1;
     }
 
     private static double NeighborAlphaSupport(byte[] pixels, int width, int height, int stride, int x, int y, int radius)
