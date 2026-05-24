@@ -43,6 +43,8 @@ public partial class MainWindow : Window
 
     private bool _cropMode;
     private bool _isCropping;
+    private bool _selectionMode;
+    private bool _isSelecting;
     private bool _pickChroma;
     private bool _eraseMode;
     private bool _restoreMode;
@@ -56,6 +58,8 @@ public partial class MainWindow : Window
     private double _panStartVerticalOffset;
     private double _zoom = 1.0;
     private Point _cropStart;
+    private Point _selectionStart;
+    private Int32Rect? _selectionRect;
     private Point? _lastBrushPoint;
     private Color _chromaColor = Colors.White;
     private int _historyIndex = -1;
@@ -408,7 +412,10 @@ public partial class MainWindow : Window
         _autoRestoreMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
+        _selectionMode = false;
+        _isSelecting = false;
         UpdateBrushButtons();
+        UpdateSelectionButton();
         SetStatus("캔버스에서 제거할 색상을 클릭하세요.");
     }
 
@@ -471,6 +478,7 @@ public partial class MainWindow : Window
             _restoreSourceBitmap = BitmapEditor.Crop(_restoreSourceBitmap, trimRect);
         }
 
+        ClearSelectionOverlay(disableMode: true);
         RecordHistory("투명 여백 자르기");
         SetStatus("투명 여백을 잘랐습니다.");
     }
@@ -482,6 +490,8 @@ public partial class MainWindow : Window
         _autoRestoreMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
+        _selectionMode = false;
+        _isSelecting = false;
         _pickChroma = false;
         UpdateBrushState();
     }
@@ -493,6 +503,8 @@ public partial class MainWindow : Window
         _autoRestoreMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
+        _selectionMode = false;
+        _isSelecting = false;
         _pickChroma = false;
         UpdateBrushState();
     }
@@ -509,6 +521,8 @@ public partial class MainWindow : Window
         _restoreMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
+        _selectionMode = false;
+        _isSelecting = false;
         _pickChroma = false;
 
         if (_autoRestoreMode && !CanUseAutoRestoreBrush())
@@ -525,21 +539,25 @@ public partial class MainWindow : Window
     private void RotateLeft_Click(object sender, RoutedEventArgs e)
     {
         TransformCurrent(bitmap => BitmapEditor.Rotate(bitmap, -90), "왼쪽으로 회전했습니다.");
+        ClearSelectionOverlay(disableMode: true);
     }
 
     private void RotateRight_Click(object sender, RoutedEventArgs e)
     {
         TransformCurrent(bitmap => BitmapEditor.Rotate(bitmap, 90), "오른쪽으로 회전했습니다.");
+        ClearSelectionOverlay(disableMode: true);
     }
 
     private void FlipHorizontal_Click(object sender, RoutedEventArgs e)
     {
         TransformCurrent(BitmapEditor.FlipHorizontal, "좌우 반전했습니다.");
+        ClearSelectionOverlay(disableMode: true);
     }
 
     private void FlipVertical_Click(object sender, RoutedEventArgs e)
     {
         TransformCurrent(BitmapEditor.FlipVertical, "상하 반전했습니다.");
+        ClearSelectionOverlay(disableMode: true);
     }
 
     private void CropMode_Click(object sender, RoutedEventArgs e)
@@ -550,9 +568,12 @@ public partial class MainWindow : Window
         _autoRestoreMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
+        _selectionMode = false;
+        _isSelecting = false;
         _pickChroma = false;
         CropButton.Background = _cropMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         UpdateBrushButtons();
+        UpdateSelectionButton();
         SetStatus(_cropMode ? "캔버스에서 자를 영역을 드래그하세요." : "자르기 선택 해제");
     }
 
@@ -580,8 +601,118 @@ public partial class MainWindow : Window
 
         _cropMode = false;
         CropRect.Visibility = Visibility.Collapsed;
+        ClearSelectionOverlay(disableMode: true);
         RecordHistory("자르기");
         SetStatus("선택 영역으로 잘랐습니다.");
+    }
+
+    private void SelectionMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        _selectionMode = !_selectionMode;
+        _cropMode = false;
+        _isCropping = false;
+        _eraseMode = false;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
+        _pickChroma = false;
+        CropRect.Visibility = Visibility.Collapsed;
+        UpdateBrushButtons();
+        UpdateSelectionButton();
+        SetStatus(_selectionMode ? "캔버스에서 선택할 영역을 드래그하세요." : "선택 영역 도구 해제");
+    }
+
+    private void ClearSelection_Click(object sender, RoutedEventArgs e)
+    {
+        ClearSelectionOverlay(disableMode: true);
+        SetStatus("선택 영역을 해제했습니다.");
+    }
+
+    private void ClearSelectionArea_Click(object sender, RoutedEventArgs e)
+    {
+        ApplySelectionAlpha(keepInside: false, "선택 영역 지우기", "선택 영역을 투명하게 지웠습니다.");
+    }
+
+    private void KeepSelectionArea_Click(object sender, RoutedEventArgs e)
+    {
+        ApplySelectionAlpha(keepInside: true, "선택만 남기기", "선택 영역만 남기고 나머지를 투명하게 지웠습니다.");
+    }
+
+    private void ExtractSelectionLayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetSelection(out Int32Rect rect) || GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("새 레이어로 만들 선택 영역이 없습니다.");
+            return;
+        }
+
+        PushUndo();
+        int insertIndex = Math.Clamp(LayerList.SelectedIndex + 1, 0, _layers.Count);
+        BitmapSource extracted = BitmapEditor.ApplySelectionAlpha(
+            activeLayer.Bitmap,
+            rect,
+            keepInside: true,
+            (int)SelectionFeatherSlider.Value);
+        var layer = new ImageLayer("선택 레이어", extracted);
+        AddLayer(layer, insertIndex);
+        SelectLayer(layer);
+        RefreshCompositeFromLayers();
+        RecordHistory("선택 영역 레이어 추출");
+        SetStatus("선택 영역을 새 레이어로 만들었습니다.");
+    }
+
+    private void SelectionToMask_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetSelection(out Int32Rect rect) || GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("마스크로 만들 선택 영역이 없습니다.");
+            return;
+        }
+
+        PushUndo();
+        BitmapSource mask = BitmapEditor.CreateSelectionMask(
+            activeLayer.Bitmap.PixelWidth,
+            activeLayer.Bitmap.PixelHeight,
+            rect,
+            (int)SelectionFeatherSlider.Value,
+            activeLayer.Bitmap.DpiX,
+            activeLayer.Bitmap.DpiY);
+        SetLayerMask(activeLayer, mask);
+        RefreshCompositeFromLayers();
+        RecordHistory("선택 영역 마스크화");
+        SetStatus("선택 영역을 레이어 마스크로 바꿨습니다.");
+    }
+
+    private void ApplySelectionAlpha(bool keepInside, string historyLabel, string status)
+    {
+        if (!TryGetSelection(out Int32Rect rect))
+        {
+            SetStatus("적용할 선택 영역이 없습니다.");
+            return;
+        }
+
+        BitmapSource? target = GetEditableBitmap();
+        if (target is null)
+        {
+            SetStatus("편집할 이미지가 없습니다.");
+            return;
+        }
+
+        PushUndo();
+        BitmapSource edited = BitmapEditor.ApplySelectionAlpha(
+            target,
+            rect,
+            keepInside,
+            (int)SelectionFeatherSlider.Value);
+        SetEditableBitmap(edited);
+        RecordHistory(historyLabel);
+        SetStatus(status);
     }
 
     private void ResizeApply_Click(object sender, RoutedEventArgs e)
@@ -609,6 +740,7 @@ public partial class MainWindow : Window
             _restoreSourceBitmap = BitmapEditor.Resize(_restoreSourceBitmap, width, height);
         }
 
+        ClearSelectionOverlay(disableMode: true);
         RecordHistory($"리사이즈 {width} x {height}");
         SetStatus($"리사이즈 완료: {width} x {height}");
     }
@@ -833,6 +965,8 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _selectionMode = false;
+        _isSelecting = false;
         _pickChroma = false;
         UpdateBrushState();
     }
@@ -849,6 +983,8 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _selectionMode = false;
+        _isSelecting = false;
         _pickChroma = false;
         UpdateBrushState();
     }
@@ -1301,6 +1437,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_selectionMode)
+        {
+            _isSelecting = true;
+            _selectionStart = imagePoint;
+            Mouse.Capture(ImageHost);
+            SetSelectionFromPoints(_selectionStart, imagePoint);
+            return;
+        }
+
         if (_cropMode)
         {
             _isCropping = true;
@@ -1331,7 +1476,11 @@ public partial class MainWindow : Window
             UpdateBrushGhost(imagePoint);
         }
 
-        if (_isCropping && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
+        if (_isSelecting && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
+        {
+            SetSelectionFromPoints(_selectionStart, imagePoint);
+        }
+        else if (_isCropping && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
         {
             double x = Math.Min(_cropStart.X, imagePoint.X);
             double y = Math.Min(_cropStart.Y, imagePoint.Y);
@@ -1356,6 +1505,14 @@ public partial class MainWindow : Window
         }
 
         _isCropping = false;
+        if (_isSelecting)
+        {
+            _isSelecting = false;
+            SetStatus(_selectionRect is { } rect
+                ? $"선택 영역: {rect.Width} x {rect.Height}"
+                : "선택 영역이 너무 작습니다.");
+        }
+
         _isPanning = false;
         _brushHistoryCaptured = false;
         _lastBrushPoint = null;
@@ -1366,6 +1523,74 @@ public partial class MainWindow : Window
     private void Preview_MouseLeave(object sender, MouseEventArgs e)
     {
         BrushGhost.Visibility = Visibility.Collapsed;
+    }
+
+    private void SetSelectionFromPoints(Point start, Point end)
+    {
+        if (_currentBitmap is null)
+        {
+            return;
+        }
+
+        int x = (int)Math.Floor(Math.Min(start.X, end.X));
+        int y = (int)Math.Floor(Math.Min(start.Y, end.Y));
+        int right = (int)Math.Ceiling(Math.Max(start.X, end.X));
+        int bottom = (int)Math.Ceiling(Math.Max(start.Y, end.Y));
+        x = Math.Clamp(x, 0, Math.Max(0, _currentBitmap.PixelWidth - 1));
+        y = Math.Clamp(y, 0, Math.Max(0, _currentBitmap.PixelHeight - 1));
+        right = Math.Clamp(right, x + 1, _currentBitmap.PixelWidth);
+        bottom = Math.Clamp(bottom, y + 1, _currentBitmap.PixelHeight);
+
+        int width = right - x;
+        int height = bottom - y;
+        _selectionRect = width < 2 || height < 2
+            ? null
+            : new Int32Rect(x, y, width, height);
+        UpdateSelectionOverlay();
+    }
+
+    private bool TryGetSelection(out Int32Rect rect)
+    {
+        rect = default;
+        if (_currentBitmap is null || _selectionRect is not { } selection)
+        {
+            return false;
+        }
+
+        int x = Math.Clamp(selection.X, 0, Math.Max(0, _currentBitmap.PixelWidth - 1));
+        int y = Math.Clamp(selection.Y, 0, Math.Max(0, _currentBitmap.PixelHeight - 1));
+        int right = Math.Clamp(selection.X + selection.Width, x + 1, _currentBitmap.PixelWidth);
+        int bottom = Math.Clamp(selection.Y + selection.Height, y + 1, _currentBitmap.PixelHeight);
+        rect = new Int32Rect(x, y, right - x, bottom - y);
+        return rect.Width > 1 && rect.Height > 1;
+    }
+
+    private void UpdateSelectionOverlay()
+    {
+        if (!TryGetSelection(out Int32Rect rect))
+        {
+            SelectionRect.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        Canvas.SetLeft(SelectionRect, rect.X);
+        Canvas.SetTop(SelectionRect, rect.Y);
+        SelectionRect.Width = rect.Width;
+        SelectionRect.Height = rect.Height;
+        SelectionRect.Visibility = Visibility.Visible;
+    }
+
+    private void ClearSelectionOverlay(bool disableMode)
+    {
+        _selectionRect = null;
+        _isSelecting = false;
+        if (disableMode)
+        {
+            _selectionMode = false;
+        }
+
+        SelectionRect.Visibility = Visibility.Collapsed;
+        UpdateSelectionButton();
     }
 
     private void AddImages(IEnumerable<string> paths)
@@ -1711,6 +1936,8 @@ public partial class MainWindow : Window
 
         if (bitmap is null)
         {
+            _selectionRect = null;
+            SelectionRect.Visibility = Visibility.Collapsed;
             ImageHost.Width = double.NaN;
             ImageHost.Height = double.NaN;
             OverlayCanvas.Width = 0;
@@ -1734,6 +1961,7 @@ public partial class MainWindow : Window
         CurrentDetailText.Text = $"{Path.GetFileName(path ?? "편집 이미지")}\n{bitmap.PixelWidth} x {bitmap.PixelHeight}\n{bitmap.Format}";
         ApplyZoom();
         UpdateCompareView();
+        UpdateSelectionOverlay();
     }
 
     private void UpdateCompareView()
@@ -2464,6 +2692,7 @@ public partial class MainWindow : Window
     private void UpdateBrushState()
     {
         UpdateBrushButtons();
+        UpdateSelectionButton();
         SetStatus(_eraseMode ? "지우개 브러시 활성화"
             : _restoreMode ? "복원 브러시 활성화"
             : _autoRestoreMode ? "자동 복원 브러시 활성화: 전경으로 판단되는 부분만 복구"
@@ -2481,10 +2710,19 @@ public partial class MainWindow : Window
         MaskRevealButton.Background = _maskRevealMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
     }
 
+    private void UpdateSelectionButton()
+    {
+        SelectionButton.Background = _selectionMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+        SelectionButton.Foreground = _selectionMode ? new SolidColorBrush(Color.FromRgb(7, 19, 17)) : FindBrush("InkBrush");
+    }
+
     private void ResetInteractionModes()
     {
         _cropMode = false;
         _isCropping = false;
+        _selectionMode = false;
+        _isSelecting = false;
+        _selectionRect = null;
         _pickChroma = false;
         _eraseMode = false;
         _restoreMode = false;
@@ -2493,9 +2731,11 @@ public partial class MainWindow : Window
         _maskRevealMode = false;
         _lastBrushPoint = null;
         CropRect.Visibility = Visibility.Collapsed;
+        SelectionRect.Visibility = Visibility.Collapsed;
         BrushGhost.Visibility = Visibility.Collapsed;
         CropButton.Background = FindBrush("PanelLiftBrush");
         UpdateBrushButtons();
+        UpdateSelectionButton();
     }
 
     private void UpdateQueueText()

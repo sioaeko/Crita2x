@@ -78,6 +78,61 @@ public static class BitmapEditor
         return ToBgra32(cropped);
     }
 
+    public static BitmapSource ApplySelectionAlpha(BitmapSource source, Int32Rect rect, bool keepInside, int feather)
+    {
+        source = ToBgra32(source);
+        int width = source.PixelWidth;
+        int height = source.PixelHeight;
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        source.CopyPixels(pixels, stride, 0);
+
+        rect = ClampRect(rect, width, height);
+        feather = Math.Clamp(feather, 0, 256);
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                double coverage = SelectionCoverage(x, y, rect, feather);
+                double alphaFactor = keepInside ? coverage : 1.0 - coverage;
+                int index = (y * stride) + (x * 4);
+                pixels[index + 3] = ClampToByte(pixels[index + 3] * alphaFactor);
+            }
+        }
+
+        return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
+    }
+
+    public static BitmapSource CreateSelectionMask(
+        int width,
+        int height,
+        Int32Rect rect,
+        int feather,
+        double dpiX = 96,
+        double dpiY = 96)
+    {
+        width = Math.Max(1, width);
+        height = Math.Max(1, height);
+        rect = ClampRect(rect, width, height);
+        feather = Math.Clamp(feather, 0, 256);
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                byte value = ClampToByte(SelectionCoverage(x, y, rect, feather) * 255);
+                int index = (y * stride) + (x * 4);
+                pixels[index] = value;
+                pixels[index + 1] = value;
+                pixels[index + 2] = value;
+                pixels[index + 3] = 255;
+            }
+        }
+
+        return CreateBitmap(pixels, width, height, dpiX, dpiY);
+    }
+
     public static BitmapSource Resize(BitmapSource source, int width, int height)
     {
         width = Math.Max(1, width);
@@ -769,6 +824,46 @@ public static class BitmapEditor
         int right = Math.Clamp(rect.X + rect.Width, x + 1, width);
         int bottom = Math.Clamp(rect.Y + rect.Height, y + 1, height);
         return new Int32Rect(x, y, right - x, bottom - y);
+    }
+
+    private static double SelectionCoverage(int x, int y, Int32Rect rect, int feather)
+    {
+        double px = x + 0.5;
+        double py = y + 0.5;
+        double left = rect.X;
+        double top = rect.Y;
+        double right = rect.X + rect.Width;
+        double bottom = rect.Y + rect.Height;
+        bool inside = px >= left && px < right && py >= top && py < bottom;
+        if (feather <= 0)
+        {
+            return inside ? 1.0 : 0.0;
+        }
+
+        if (inside)
+        {
+            double edgeDistance = Math.Min(
+                Math.Min(px - left, right - px),
+                Math.Min(py - top, bottom - py));
+            double t = Math.Clamp(edgeDistance / feather, 0, 1);
+            return 0.5 + (0.5 * SmoothStep(t));
+        }
+
+        double dx = px < left ? left - px : px >= right ? px - right : 0;
+        double dy = py < top ? top - py : py >= bottom ? py - bottom : 0;
+        double outsideDistance = Math.Sqrt((dx * dx) + (dy * dy));
+        if (outsideDistance >= feather)
+        {
+            return 0.0;
+        }
+
+        return 0.5 * (1.0 - SmoothStep(outsideDistance / feather));
+    }
+
+    private static double SmoothStep(double value)
+    {
+        value = Math.Clamp(value, 0, 1);
+        return value * value * (3 - (2 * value));
     }
 
     private static double ApplyTone(byte value, double brightness, double contrastFactor)
