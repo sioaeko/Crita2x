@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     private const int DwmwcpRound = 2;
 
     private readonly ObservableCollection<BatchJob> _jobs = [];
+    private readonly ObservableCollection<HistoryEntry> _historyEntries = [];
     private readonly string[] _supportedExtensions = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"];
     private readonly Stack<ImageState> _undoStack = new();
     private readonly Stack<ImageState> _redoStack = new();
@@ -51,11 +52,15 @@ public partial class MainWindow : Window
     private Point _cropStart;
     private Point? _lastBrushPoint;
     private Color _chromaColor = Colors.White;
+    private int _historyIndex = -1;
+    private int _historySequence;
+    private bool _suppressHistorySelection;
 
     public MainWindow()
     {
         InitializeComponent();
         JobList.ItemsSource = _jobs;
+        HistoryList.ItemsSource = _historyEntries;
         ResizeSlider.ValueChanged += (_, _) => ResizeBox.Text = ((int)ResizeSlider.Value).ToString();
     }
 
@@ -316,6 +321,7 @@ public partial class MainWindow : Window
             (int)ToleranceSlider.Value,
             (int)SoftnessSlider.Value);
         UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory("가장자리 누끼");
         SetStatus("가장자리 배경을 투명 처리했습니다.");
     }
 
@@ -343,6 +349,7 @@ public partial class MainWindow : Window
             (int)ToleranceSlider.Value,
             (int)SoftnessSlider.Value);
         UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory("색상 누끼");
         SetStatus($"색상 누끼 적용: RGB({_chromaColor.R}, {_chromaColor.G}, {_chromaColor.B})");
     }
 
@@ -356,6 +363,7 @@ public partial class MainWindow : Window
         PushUndo();
         _currentBitmap = BackgroundRemovalService.FeatherAlpha(_currentBitmap!, radius: 2);
         UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory("가장자리 정리");
         SetStatus("가장자리 알파를 부드럽게 정리했습니다.");
     }
 
@@ -369,6 +377,7 @@ public partial class MainWindow : Window
         PushUndo();
         _currentBitmap = BackgroundRemovalService.Defringe(_currentBitmap!, amount: 55);
         UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory("테두리 완화");
         SetStatus("반투명 테두리 색을 완화했습니다.");
     }
 
@@ -388,6 +397,7 @@ public partial class MainWindow : Window
         }
 
         UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory("투명 여백 자르기");
         SetStatus("투명 여백을 잘랐습니다.");
     }
 
@@ -489,6 +499,7 @@ public partial class MainWindow : Window
         _cropMode = false;
         CropRect.Visibility = Visibility.Collapsed;
         UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory("자르기");
         SetStatus("선택 영역으로 잘랐습니다.");
     }
 
@@ -518,6 +529,7 @@ public partial class MainWindow : Window
         }
 
         UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory($"리사이즈 {width} x {height}");
         SetStatus($"리사이즈 완료: {width} x {height}");
     }
 
@@ -543,6 +555,7 @@ public partial class MainWindow : Window
         }
 
         UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory("색감 보정");
         SetStatus("보정을 적용했습니다.");
     }
 
@@ -563,6 +576,7 @@ public partial class MainWindow : Window
         _restoreSourceBitmap = _originalBitmap;
         ResetInteractionModes();
         UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory("원본 복원");
         SetStatus("원본으로 되돌렸습니다.");
     }
 
@@ -866,6 +880,11 @@ public partial class MainWindow : Window
 
     private void Preview_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
+        if (_brushHistoryCaptured)
+        {
+            RecordHistory(GetBrushHistoryLabel());
+        }
+
         _isCropping = false;
         _isPanning = false;
         _brushHistoryCaptured = false;
@@ -1195,6 +1214,7 @@ public partial class MainWindow : Window
             ResetInteractionModes();
             _zoom = 1.0;
             UpdatePreview(image, path);
+            RecordHistory("불러오기");
             Dispatcher.BeginInvoke(new Action(FitImageToView));
             SetStatus($"불러옴: {Path.GetFileName(path)}");
         }
@@ -1272,6 +1292,7 @@ public partial class MainWindow : Window
         _currentBitmap = state.Current;
         _restoreSourceBitmap = state.RestoreSource;
         UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory(status);
         SetStatus(status);
     }
 
@@ -1279,7 +1300,109 @@ public partial class MainWindow : Window
     {
         _undoStack.Clear();
         _redoStack.Clear();
+        _historyEntries.Clear();
+        _historyIndex = -1;
+        _historySequence = 0;
         _brushHistoryCaptured = false;
+        UpdateHistorySummary();
+    }
+
+    private void HistoryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressHistorySelection || HistoryList.SelectedItem is not HistoryEntry entry)
+        {
+            return;
+        }
+
+        if (_currentBitmap is not null)
+        {
+            PushUndo();
+        }
+
+        _historyIndex = HistoryList.SelectedIndex;
+        _currentBitmap = entry.Bitmap;
+        _restoreSourceBitmap = entry.RestoreSource;
+        ResetInteractionModes();
+        UpdatePreview(_currentBitmap, _currentPath);
+        UpdateHistorySummary();
+        SetStatus($"기록 이동: {entry.Label}");
+    }
+
+    private void RecordHistory(string label)
+    {
+        if (_currentBitmap is null)
+        {
+            UpdateHistorySummary();
+            return;
+        }
+
+        while (_historyEntries.Count > _historyIndex + 1)
+        {
+            _historyEntries.RemoveAt(_historyEntries.Count - 1);
+        }
+
+        _historySequence++;
+        _historyEntries.Add(new HistoryEntry(
+            _historySequence,
+            label,
+            BuildHistoryDetail(_currentBitmap),
+            _currentBitmap,
+            _restoreSourceBitmap));
+
+        while (_historyEntries.Count > 50)
+        {
+            _historyEntries.RemoveAt(0);
+        }
+
+        _historyIndex = _historyEntries.Count - 1;
+        SelectHistoryIndex(_historyIndex);
+        UpdateHistorySummary();
+    }
+
+    private void SelectHistoryIndex(int index)
+    {
+        if (index < 0 || index >= _historyEntries.Count)
+        {
+            return;
+        }
+
+        _suppressHistorySelection = true;
+        try
+        {
+            HistoryList.SelectedIndex = index;
+            HistoryList.ScrollIntoView(_historyEntries[index]);
+        }
+        finally
+        {
+            _suppressHistorySelection = false;
+        }
+    }
+
+    private void UpdateHistorySummary()
+    {
+        if (HistorySummaryText is null)
+        {
+            return;
+        }
+
+        HistorySummaryText.Text = _historyEntries.Count == 0
+            ? "열린 이미지 없음"
+            : $"{_historyEntries.Count}개 기록 · 현재 {_historyIndex + 1}";
+    }
+
+    private static string BuildHistoryDetail(BitmapSource bitmap)
+    {
+        return $"{bitmap.PixelWidth} x {bitmap.PixelHeight} · {bitmap.Format}";
+    }
+
+    private string GetBrushHistoryLabel()
+    {
+        if (_autoRestoreMode)
+        {
+            return "자동 복원 브러시";
+        }
+
+        return _restoreMode ? "복원 브러시" : "알파 지우개";
     }
 
     private static void TrimHistory<T>(Stack<T> stack, int maxCount)
@@ -1323,6 +1446,7 @@ public partial class MainWindow : Window
         }
 
         UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory(status);
         SetStatus(status);
     }
 

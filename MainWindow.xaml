@@ -829,6 +829,122 @@
                         </ScrollViewer>
                     </TabItem>
 
+                    <TabItem Header="기록">
+                        <DockPanel Margin="16">
+                            <Border DockPanel.Dock="Top"
+                                    Background="#101214"
+                                    BorderBrush="{StaticResource LineBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Padding="12"
+                                    Margin="0,0,0,12">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="히스토리" FontSize="16" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="HistorySummaryText"
+                                                   Text="열린 이미지 없음"
+                                                   Style="{StaticResource MutedText}"
+                                                   Margin="0,5,0,0" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1"
+                                                Orientation="Horizontal"
+                                                VerticalAlignment="Center">
+                                        <Button Style="{StaticResource IconButton}"
+                                                Click="Undo_Click"
+                                                Margin="0,0,6,0"
+                                                ToolTip="실행 취소">
+                                            <TextBlock Text="&#xE7A7;" Style="{StaticResource IconOnlyGlyph}" />
+                                        </Button>
+                                        <Button Style="{StaticResource IconButton}"
+                                                Click="Redo_Click"
+                                                ToolTip="다시 실행">
+                                            <TextBlock Text="&#xE7A6;" Style="{StaticResource IconOnlyGlyph}" />
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <TextBlock DockPanel.Dock="Bottom"
+                                       Text="항목을 선택하면 해당 편집 시점으로 이동합니다."
+                                       Style="{StaticResource MutedText}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,12,0,0" />
+
+                            <ListBox x:Name="HistoryList"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     SelectionChanged="HistoryList_SelectionChanged">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="{x:Type ListBoxItem}">
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="0,0,0,7" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="{x:Type ListBoxItem}">
+                                                    <Border x:Name="Root"
+                                                            Background="#17171B"
+                                                            BorderBrush="#29282E"
+                                                            BorderThickness="1"
+                                                            CornerRadius="8">
+                                                        <ContentPresenter />
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="Root" Property="Background" Value="#202025" />
+                                                            <Setter TargetName="Root" Property="BorderBrush" Value="#3C3A40" />
+                                                        </Trigger>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter TargetName="Root" Property="Background" Value="#1D2C2A" />
+                                                            <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="11">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="34" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="26"
+                                                    Height="26"
+                                                    Background="#101214"
+                                                    BorderBrush="{StaticResource LineBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6"
+                                                    VerticalAlignment="Top">
+                                                <TextBlock Text="{Binding Step}"
+                                                           Foreground="{StaticResource AccentBrush}"
+                                                           FontWeight="SemiBold"
+                                                           FontSize="11"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center" />
+                                            </Border>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding Label}"
+                                                           FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding Detail}"
+                                                           Style="{StaticResource MutedText}"
+                                                           Margin="0,4,0,0"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </TabItem>
+
                     <TabItem Header="내보내기">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel Margin="16">
