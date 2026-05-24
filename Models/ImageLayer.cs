@@ -167,8 +167,16 @@ public sealed class ImageLayer : INotifyPropertyChanged
         ImageBlendMode.Multiply => "곱하기",
         ImageBlendMode.Screen => "스크린",
         ImageBlendMode.Overlay => "오버레이",
+        ImageBlendMode.SoftLight => "소프트 라이트",
+        ImageBlendMode.HardLight => "하드 라이트",
         ImageBlendMode.Darken => "어둡게",
         ImageBlendMode.Lighten => "밝게",
+        ImageBlendMode.ColorDodge => "컬러 닷지",
+        ImageBlendMode.ColorBurn => "컬러 번",
+        ImageBlendMode.LinearDodge => "선형 닷지",
+        ImageBlendMode.LinearBurn => "선형 번",
+        ImageBlendMode.Difference => "차이",
+        ImageBlendMode.Exclusion => "제외",
         _ => "일반"
     };
 

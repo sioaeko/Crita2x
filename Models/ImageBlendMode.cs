@@ -6,6 +6,14 @@ public enum ImageBlendMode
     Multiply,
     Screen,
     Overlay,
+    SoftLight,
+    HardLight,
     Darken,
-    Lighten
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    LinearDodge,
+    LinearBurn,
+    Difference,
+    Exclusion
 }

@@ -1377,12 +1377,34 @@ public static class BitmapEditor
             ImageBlendMode.Multiply => s * t,
             ImageBlendMode.Screen => 1.0 - ((1.0 - s) * (1.0 - t)),
             ImageBlendMode.Overlay => t < 0.5 ? 2.0 * s * t : 1.0 - (2.0 * (1.0 - s) * (1.0 - t)),
+            ImageBlendMode.SoftLight => SoftLightChannel(s, t),
+            ImageBlendMode.HardLight => s < 0.5 ? 2.0 * s * t : 1.0 - (2.0 * (1.0 - s) * (1.0 - t)),
             ImageBlendMode.Darken => Math.Min(s, t),
             ImageBlendMode.Lighten => Math.Max(s, t),
+            ImageBlendMode.ColorDodge => s >= 1.0 ? 1.0 : Math.Min(1.0, t / (1.0 - s)),
+            ImageBlendMode.ColorBurn => s <= 0.0 ? 0.0 : 1.0 - Math.Min(1.0, (1.0 - t) / s),
+            ImageBlendMode.LinearDodge => Math.Min(1.0, s + t),
+            ImageBlendMode.LinearBurn => Math.Max(0.0, s + t - 1.0),
+            ImageBlendMode.Difference => Math.Abs(t - s),
+            ImageBlendMode.Exclusion => s + t - (2.0 * s * t),
             _ => s
         };
 
         return ClampToByte(blended * 255.0);
+    }
+
+    private static double SoftLightChannel(double source, double target)
+    {
+        return source < 0.5
+            ? target - ((1.0 - (2.0 * source)) * target * (1.0 - target))
+            : target + (((2.0 * source) - 1.0) * (SoftLightD(target) - target));
+    }
+
+    private static double SoftLightD(double value)
+    {
+        return value <= 0.25
+            ? (((16.0 * value - 12.0) * value) + 4.0) * value
+            : Math.Sqrt(value);
     }
 
     public static void Save(BitmapSource source, string path)

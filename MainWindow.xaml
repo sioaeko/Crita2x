@@ -1397,8 +1397,16 @@
                                     <ComboBoxItem Content="곱하기" Tag="Multiply" />
                                     <ComboBoxItem Content="스크린" Tag="Screen" />
                                     <ComboBoxItem Content="오버레이" Tag="Overlay" />
+                                    <ComboBoxItem Content="소프트 라이트" Tag="SoftLight" />
+                                    <ComboBoxItem Content="하드 라이트" Tag="HardLight" />
                                     <ComboBoxItem Content="어둡게" Tag="Darken" />
                                     <ComboBoxItem Content="밝게" Tag="Lighten" />
+                                    <ComboBoxItem Content="컬러 닷지" Tag="ColorDodge" />
+                                    <ComboBoxItem Content="컬러 번" Tag="ColorBurn" />
+                                    <ComboBoxItem Content="선형 닷지" Tag="LinearDodge" />
+                                    <ComboBoxItem Content="선형 번" Tag="LinearBurn" />
+                                    <ComboBoxItem Content="차이" Tag="Difference" />
+                                    <ComboBoxItem Content="제외" Tag="Exclusion" />
                                 </ComboBox>
 
                                 <Grid>
