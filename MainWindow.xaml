@@ -914,6 +914,18 @@
                                 <TextBlock Text="브러시 크기" Style="{StaticResource ToolLabel}" />
                                 <Slider x:Name="BrushSizeSlider" Minimum="8" Maximum="180" Value="42" />
 
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="브러시 경도" Style="{StaticResource ToolLabel}" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding ElementName=BrushHardnessSlider, Path=Value, StringFormat={}{0:F0}}"
+                                               Style="{StaticResource ToolLabel}" />
+                                </Grid>
+                                <Slider x:Name="BrushHardnessSlider" Minimum="0" Maximum="100" Value="58" />
+
                                 <Grid Margin="0,10,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -1352,6 +1364,21 @@
                                         Minimum="8"
                                         Maximum="220"
                                         Value="56" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="경도" Style="{StaticResource ToolLabel}" Margin="0,0,0,4" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding ElementName=MaskBrushHardnessSlider, Path=Value, StringFormat={}{0:F0}}"
+                                               Style="{StaticResource ToolLabel}"
+                                               Margin="0,0,0,4" />
+                                </Grid>
+                                <Slider x:Name="MaskBrushHardnessSlider"
+                                        Minimum="0"
+                                        Maximum="100"
+                                        Value="62" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />

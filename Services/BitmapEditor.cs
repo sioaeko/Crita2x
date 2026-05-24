@@ -326,7 +326,7 @@ public static class BitmapEditor
         return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
     }
 
-    public static BitmapSource ApplyAlphaBrush(BitmapSource source, int centerX, int centerY, int radius, bool restore)
+    public static BitmapSource ApplyAlphaBrush(BitmapSource source, int centerX, int centerY, int radius, bool restore, double hardness)
     {
         source = ToBgra32(source);
         int width = source.PixelWidth;
@@ -351,8 +351,7 @@ public static class BitmapEditor
                     continue;
                 }
 
-                double pressure = 1.0 - Math.Clamp(distance / radius, 0, 1);
-                pressure = Math.Pow(pressure, 0.65);
+                double pressure = BrushPressure(distance, radius, hardness);
                 int index = (y * stride) + (x * 4) + 3;
 
                 if (restore)
@@ -377,7 +376,8 @@ public static class BitmapEditor
         int sourceCenterX,
         int sourceCenterY,
         int radius,
-        double strength)
+        double strength,
+        double hardness)
     {
         target = ToBgra32(target);
         sampleSource = ToBgra32(sampleSource);
@@ -419,7 +419,7 @@ public static class BitmapEditor
                     continue;
                 }
 
-                double pressure = Math.Pow(1.0 - Math.Clamp(distance / radius, 0, 1), 0.72) * strength;
+                double pressure = BrushPressure(distance, radius, hardness) * strength;
                 int targetIndex = (y * stride) + (x * 4);
                 int sourceIndex = (sourceY * stride) + (sourceX * 4);
                 for (int channel = 0; channel < 4; channel++)
@@ -433,7 +433,7 @@ public static class BitmapEditor
         return CreateBitmap(pixels, width, height, target.DpiX, target.DpiY);
     }
 
-    public static BitmapSource ApplyAutoRestoreBrush(BitmapSource target, BitmapSource restoreSource, int centerX, int centerY, int radius, int sensitivity, double strength)
+    public static BitmapSource ApplyAutoRestoreBrush(BitmapSource target, BitmapSource restoreSource, int centerX, int centerY, int radius, int sensitivity, double strength, double hardness)
     {
         target = ToBgra32(target);
         restoreSource = ToBgra32(restoreSource);
@@ -487,7 +487,6 @@ public static class BitmapEditor
                     continue;
                 }
 
-                double pressure = Math.Pow(1.0 - Math.Clamp(distance / radius, 0, 1), 0.65);
                 int index = (y * stride) + (x * 4);
                 double alpha = alphaSnapshot[index + 3] / 255.0;
 
@@ -512,8 +511,7 @@ public static class BitmapEditor
                     continue;
                 }
 
-                double pressure = 1.0 - Math.Clamp(distance / radius, 0, 1);
-                pressure = Math.Pow(pressure, 0.65);
+                double pressure = BrushPressure(distance, radius, hardness);
                 int index = (y * stride) + (x * 4);
                 int localIndex = ((y - minY) * localWidth) + (x - minX);
                 double currentAlpha = alphaSnapshot[index + 3] / 255.0;
@@ -722,7 +720,7 @@ public static class BitmapEditor
         return CreateBitmap(pixels, width, height, dpiX, dpiY);
     }
 
-    public static BitmapSource ApplyMaskBrush(BitmapSource mask, int centerX, int centerY, int radius, bool reveal, double strength)
+    public static BitmapSource ApplyMaskBrush(BitmapSource mask, int centerX, int centerY, int radius, bool reveal, double strength, double hardness)
     {
         mask = ToBgra32(mask);
         int width = mask.PixelWidth;
@@ -748,7 +746,7 @@ public static class BitmapEditor
                     continue;
                 }
 
-                double pressure = Math.Pow(1.0 - Math.Clamp(distance / radius, 0, 1), 0.65) * strength;
+                double pressure = BrushPressure(distance, radius, hardness) * strength;
                 int index = (y * stride) + (x * 4);
                 double current = pixels[index] / 255.0;
                 double target = reveal ? 1.0 : 0.0;
@@ -1020,6 +1018,25 @@ public static class BitmapEditor
     {
         value = Math.Clamp(value, 0, 1);
         return value * value * (3 - (2 * value));
+    }
+
+    private static double BrushPressure(double distance, int radius, double hardness)
+    {
+        if (radius <= 0 || distance > radius)
+        {
+            return 0;
+        }
+
+        double normalized = Math.Clamp(distance / radius, 0, 1);
+        double hardEdge = Math.Clamp(hardness, 0, 1) * 0.92;
+        if (normalized <= hardEdge)
+        {
+            return 1;
+        }
+
+        double falloff = Math.Max(0.001, 1.0 - hardEdge);
+        double t = (normalized - hardEdge) / falloff;
+        return 1.0 - SmoothStep(t);
     }
 
     private static double ApplyTone(byte value, double brightness, double contrastFactor)

@@ -3758,7 +3758,8 @@ public partial class MainWindow : Window
                 y,
                 radius,
                 reveal: _maskRevealMode,
-                MaskBrushStrengthSlider.Value / 100.0);
+                MaskBrushStrengthSlider.Value / 100.0,
+                MaskBrushHardnessSlider.Value / 100.0);
             SetLayerMask(activeLayer, editedMask);
             return;
         }
@@ -3798,7 +3799,8 @@ public partial class MainWindow : Window
                 sourceX,
                 sourceY,
                 radius,
-                CloneStrengthSlider.Value / 100.0);
+                CloneStrengthSlider.Value / 100.0,
+                BrushHardnessSlider.Value / 100.0);
         }
         else if (_autoRestoreMode)
         {
@@ -3809,11 +3811,18 @@ public partial class MainWindow : Window
                 y,
                 radius,
                 (int)AutoRestoreSensitivitySlider.Value,
-                AutoRestoreStrengthSlider.Value / 100.0);
+                AutoRestoreStrengthSlider.Value / 100.0,
+                BrushHardnessSlider.Value / 100.0);
         }
         else
         {
-            edited = BitmapEditor.ApplyAlphaBrush(target, x, y, radius, restore: _restoreMode);
+            edited = BitmapEditor.ApplyAlphaBrush(
+                target,
+                x,
+                y,
+                radius,
+                restore: _restoreMode,
+                BrushHardnessSlider.Value / 100.0);
         }
 
         SetEditableBitmap(edited, refreshPreview: false);
@@ -3830,10 +3839,13 @@ public partial class MainWindow : Window
         bool restorativeBrush = _restoreMode || _autoRestoreMode || _maskRevealMode || _cloneStampMode;
         bool maskBrush = _maskHideMode || _maskRevealMode;
         double size = (maskBrush ? MaskBrushSizeSlider.Value : BrushSizeSlider.Value) * 2;
+        double hardness = maskBrush ? MaskBrushHardnessSlider.Value : BrushHardnessSlider.Value;
+        byte fillAlpha = (byte)Math.Clamp(20 + (hardness * 0.45), 20, 70);
         BrushGhost.Width = size;
         BrushGhost.Height = size;
         BrushGhost.Stroke = restorativeBrush ? FindBrush("AccentBrush") : FindBrush("AccentWarmBrush");
-        BrushGhost.Fill = new SolidColorBrush(restorativeBrush ? Color.FromArgb(34, 94, 234, 212) : Color.FromArgb(34, 255, 184, 107));
+        BrushGhost.StrokeThickness = hardness > 82 ? 2.6 : 2;
+        BrushGhost.Fill = new SolidColorBrush(restorativeBrush ? Color.FromArgb(fillAlpha, 94, 234, 212) : Color.FromArgb(fillAlpha, 255, 184, 107));
         Canvas.SetLeft(BrushGhost, imagePoint.X - (size / 2));
         Canvas.SetTop(BrushGhost, imagePoint.Y - (size / 2));
         BrushGhost.Visibility = Visibility.Visible;
