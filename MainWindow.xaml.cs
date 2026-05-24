@@ -1280,6 +1280,47 @@ public partial class MainWindow : Window
         };
     }
 
+    private void AlignLayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentBitmap is null || GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("정렬할 레이어가 없습니다.");
+            return;
+        }
+
+        if (sender is not FrameworkElement { Tag: string alignment })
+        {
+            return;
+        }
+
+        int x = activeLayer.OffsetX;
+        int y = activeLayer.OffsetY;
+        x = alignment switch
+        {
+            "left" => 0,
+            "center-x" => (int)Math.Round((_currentBitmap.PixelWidth - activeLayer.Bitmap.PixelWidth) / 2.0),
+            "right" => _currentBitmap.PixelWidth - activeLayer.Bitmap.PixelWidth,
+            _ => x
+        };
+        y = alignment switch
+        {
+            "top" => 0,
+            "center-y" => (int)Math.Round((_currentBitmap.PixelHeight - activeLayer.Bitmap.PixelHeight) / 2.0),
+            "bottom" => _currentBitmap.PixelHeight - activeLayer.Bitmap.PixelHeight,
+            _ => y
+        };
+
+        if (x == activeLayer.OffsetX && y == activeLayer.OffsetY)
+        {
+            return;
+        }
+
+        PushUndo();
+        SetLayerOffset(activeLayer, x, y);
+        RecordHistory("레이어 정렬");
+        SetStatus($"레이어 정렬: X {x}, Y {y}");
+    }
+
     private void ApplyLayerSize_Click(object sender, RoutedEventArgs e)
     {
         if (GetActiveLayer() is not ImageLayer activeLayer)
@@ -1548,9 +1589,14 @@ public partial class MainWindow : Window
 
         OpenLastOutputButton.IsEnabled = hasOutput;
         RevealLastOutputButton.IsEnabled = hasOutput;
-        LastOutputNameText.Text = hasOutput
+        PanelOpenLastOutputButton.IsEnabled = hasOutput;
+        PanelRevealLastOutputButton.IsEnabled = hasOutput;
+
+        string outputName = hasOutput
             ? Path.GetFileName(_lastOutputPath!)
             : "완료 결과 없음";
+        LastOutputNameText.Text = outputName;
+        PanelLastOutputNameText.Text = outputName;
     }
 
     private void SelectJobByOutput(string outputPath)
@@ -1627,6 +1673,65 @@ public partial class MainWindow : Window
     private void CompareSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         UpdateCompareOverlay();
+    }
+
+    private void GridOverlay_Changed(object sender, RoutedEventArgs e)
+    {
+        UpdateGridOverlay();
+    }
+
+    private void GridSizeBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        GridSizeBox.Text = GetGridSize().ToString();
+        UpdateGridOverlay();
+    }
+
+    private void UpdateGridOverlay()
+    {
+        if (_currentBitmap is null || GridOverlayBox.IsChecked != true)
+        {
+            GridOverlay.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        int size = GetGridSize();
+        GridOverlay.Width = _currentBitmap.PixelWidth;
+        GridOverlay.Height = _currentBitmap.PixelHeight;
+        GridOverlay.Fill = CreateGridBrush(size);
+        GridOverlay.Visibility = Visibility.Visible;
+    }
+
+    private int GetGridSize()
+    {
+        return int.TryParse(GridSizeBox.Text, out int size)
+            ? Math.Clamp(size, 4, 512)
+            : 64;
+    }
+
+    private static DrawingBrush CreateGridBrush(int size)
+    {
+        var group = new DrawingGroup();
+        using (DrawingContext context = group.Open())
+        {
+            var linePen = new Pen(new SolidColorBrush(Color.FromArgb(58, 244, 240, 232)), 1);
+            var majorPen = new Pen(new SolidColorBrush(Color.FromArgb(86, 130, 220, 207)), 1);
+            Rect tile = new(0, 0, size, size);
+            context.DrawRectangle(Brushes.Transparent, null, tile);
+            context.DrawLine(linePen, new Point(size - 0.5, 0), new Point(size - 0.5, size));
+            context.DrawLine(linePen, new Point(0, size - 0.5), new Point(size, size - 0.5));
+            context.DrawLine(majorPen, new Point(0.5, 0), new Point(0.5, size));
+            context.DrawLine(majorPen, new Point(0, 0.5), new Point(size, 0.5));
+        }
+
+        return new DrawingBrush(group)
+        {
+            TileMode = TileMode.Tile,
+            Viewport = new Rect(0, 0, size, size),
+            ViewportUnits = BrushMappingMode.Absolute,
+            Stretch = Stretch.None,
+            AlignmentX = AlignmentX.Left,
+            AlignmentY = AlignmentY.Top
+        };
     }
 
     private void SetZoom(double zoom)
@@ -2370,6 +2475,7 @@ public partial class MainWindow : Window
         {
             _selectionRect = null;
             SelectionRect.Visibility = Visibility.Collapsed;
+            GridOverlay.Visibility = Visibility.Collapsed;
             HideActiveLayerBounds();
             ImageHost.Width = double.NaN;
             ImageHost.Height = double.NaN;
@@ -2395,6 +2501,7 @@ public partial class MainWindow : Window
         ApplyZoom();
         UpdateCompareView();
         UpdateSelectionOverlay();
+        UpdateGridOverlay();
         UpdateActiveLayerBounds();
     }
 

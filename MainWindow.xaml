@@ -433,6 +433,9 @@
                                 </Canvas>
                                 <Canvas x:Name="OverlayCanvas"
                                         IsHitTestVisible="False">
+                                    <Rectangle x:Name="GridOverlay"
+                                               Visibility="Collapsed"
+                                               IsHitTestVisible="False" />
                                     <Rectangle x:Name="ActiveLayerBounds"
                                                Visibility="Collapsed"
                                                Stroke="{StaticResource InkBrush}"
@@ -518,6 +521,18 @@
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center"
                                 Margin="8,0">
+                        <CheckBox x:Name="GridOverlayBox"
+                                  Content="격자"
+                                  Margin="0,0,8,0"
+                                  VerticalAlignment="Center"
+                                  Checked="GridOverlay_Changed"
+                                  Unchecked="GridOverlay_Changed" />
+                        <TextBox x:Name="GridSizeBox"
+                                 Text="64"
+                                 Width="48"
+                                 Margin="0,0,10,0"
+                                 ToolTip="격자 크기"
+                                 LostFocus="GridSizeBox_LostFocus" />
                         <Button x:Name="CompareBaselineButton"
                                 Click="SetCompareBaseline_Click"
                                 ToolTip="현재 상태를 비교 기준으로 저장">기준</Button>
@@ -723,6 +738,44 @@
                                         <TextBlock Text="&#xE8B7;" Style="{StaticResource IconOnlyGlyph}" />
                                     </Button>
                                 </Grid>
+
+                                <TextBlock Text="완료 결과" Style="{StaticResource SectionTitle}" />
+                                <Border Background="#101012"
+                                        BorderBrush="{StaticResource LineBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="12">
+                                    <StackPanel>
+                                        <TextBlock x:Name="PanelLastOutputNameText"
+                                                   Text="완료 결과 없음"
+                                                   Style="{StaticResource MutedText}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Margin="0,0,0,10" />
+                                        <UniformGrid Columns="2">
+                                            <Button x:Name="PanelOpenLastOutputButton"
+                                                    Style="{StaticResource PrimaryButton}"
+                                                    Click="OpenLastOutput_Click"
+                                                    IsEnabled="False"
+                                                    Margin="0,0,5,0"
+                                                    ToolTip="최근 완료 이미지를 미리보기에서 열기">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="&#xE8A7;" Style="{StaticResource ButtonIconGlyph}" />
+                                                    <TextBlock Text="결과 보기" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button x:Name="PanelRevealLastOutputButton"
+                                                    Click="RevealLastOutput_Click"
+                                                    IsEnabled="False"
+                                                    Margin="5,0,0,0"
+                                                    ToolTip="탐색기에서 최근 완료 파일 위치 열기">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="&#xE8B7;" Style="{StaticResource ButtonIconGlyph}" />
+                                                    <TextBlock Text="탐색기" />
+                                                </StackPanel>
+                                            </Button>
+                                        </UniformGrid>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </ScrollViewer>
                     </TabItem>
@@ -1144,6 +1197,26 @@
                                 <Button Click="NudgeLayer_Click"
                                         Tag="down"
                                         Margin="0,0,0,8">↓</Button>
+                                <UniformGrid Columns="3" Margin="0,0,0,8">
+                                    <Button Click="AlignLayer_Click"
+                                            Tag="left"
+                                            Margin="0,0,6,8">왼쪽</Button>
+                                    <Button Click="AlignLayer_Click"
+                                            Tag="center-x"
+                                            Margin="3,0,3,8">가운데</Button>
+                                    <Button Click="AlignLayer_Click"
+                                            Tag="right"
+                                            Margin="6,0,0,8">오른쪽</Button>
+                                    <Button Click="AlignLayer_Click"
+                                            Tag="top"
+                                            Margin="0,0,6,0">위</Button>
+                                    <Button Click="AlignLayer_Click"
+                                            Tag="center-y"
+                                            Margin="3,0,3,0">중앙</Button>
+                                    <Button Click="AlignLayer_Click"
+                                            Tag="bottom"
+                                            Margin="6,0,0,0">아래</Button>
+                                </UniformGrid>
 
                                 <TextBlock Text="순서" Style="{StaticResource ToolLabel}" Margin="0,4,0,4" />
                                 <UniformGrid Columns="4" Margin="0,0,0,8">
