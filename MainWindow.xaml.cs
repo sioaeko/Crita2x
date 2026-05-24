@@ -45,6 +45,9 @@ public partial class MainWindow : Window
     private bool _isCropping;
     private bool _selectionMode;
     private bool _isSelecting;
+    private bool _moveLayerMode;
+    private bool _isMovingLayer;
+    private bool _layerMoveCaptured;
     private bool _pickChroma;
     private bool _eraseMode;
     private bool _restoreMode;
@@ -59,6 +62,9 @@ public partial class MainWindow : Window
     private double _zoom = 1.0;
     private Point _cropStart;
     private Point _selectionStart;
+    private Point _layerMoveStart;
+    private int _layerMoveStartOffsetX;
+    private int _layerMoveStartOffsetY;
     private Int32Rect? _selectionRect;
     private Point? _lastBrushPoint;
     private Color _chromaColor = Colors.White;
@@ -109,6 +115,37 @@ public partial class MainWindow : Window
         Close();
     }
 
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            ResetInteractionModes();
+            SetStatus("도구 선택을 해제했습니다.");
+            e.Handled = true;
+            return;
+        }
+
+        if (!_moveLayerMode || IsTextInputFocused())
+        {
+            return;
+        }
+
+        int step = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 10 : 1;
+        bool handled = e.Key switch
+        {
+            Key.Left => NudgeActiveLayer(-step, 0, recordUndo: true),
+            Key.Right => NudgeActiveLayer(step, 0, recordUndo: true),
+            Key.Up => NudgeActiveLayer(0, -step, recordUndo: true),
+            Key.Down => NudgeActiveLayer(0, step, recordUndo: true),
+            _ => false
+        };
+
+        if (handled)
+        {
+            e.Handled = true;
+        }
+    }
+
     private void UpdateMaximizeGlyph()
     {
         if (MaximizeButton is null)
@@ -157,6 +194,7 @@ public partial class MainWindow : Window
         UpdateQueueText();
         UpdatePreview(null, null);
         UpdateLastOutputActions();
+        UpdateMoveLayerButton();
         SetStatus(string.IsNullOrWhiteSpace(EnginePathBox.Text)
             ? "Waifu2x 엔진 경로를 선택하면 업스케일을 실행할 수 있습니다."
             : "준비됨");
@@ -414,8 +452,11 @@ public partial class MainWindow : Window
         _maskRevealMode = false;
         _selectionMode = false;
         _isSelecting = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
         UpdateBrushButtons();
         UpdateSelectionButton();
+        UpdateMoveLayerButton();
         SetStatus("캔버스에서 제거할 색상을 클릭하세요.");
     }
 
@@ -472,7 +513,10 @@ public partial class MainWindow : Window
 
         PushUndo();
         Int32Rect trimRect = BitmapEditor.GetTransparentBounds(_currentBitmap!);
-        TransformAllLayers(bitmap => BitmapEditor.Crop(bitmap, trimRect));
+        TransformAllLayers(
+            bitmap => bitmap,
+            layer => (layer.OffsetX - trimRect.X, layer.OffsetY - trimRect.Y),
+            canvas => BitmapEditor.Crop(canvas, trimRect));
         if (_restoreSourceBitmap is not null)
         {
             _restoreSourceBitmap = BitmapEditor.Crop(_restoreSourceBitmap, trimRect);
@@ -492,6 +536,8 @@ public partial class MainWindow : Window
         _maskRevealMode = false;
         _selectionMode = false;
         _isSelecting = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
         _pickChroma = false;
         UpdateBrushState();
     }
@@ -505,6 +551,8 @@ public partial class MainWindow : Window
         _maskRevealMode = false;
         _selectionMode = false;
         _isSelecting = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
         _pickChroma = false;
         UpdateBrushState();
     }
@@ -523,6 +571,8 @@ public partial class MainWindow : Window
         _maskRevealMode = false;
         _selectionMode = false;
         _isSelecting = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
         _pickChroma = false;
 
         if (_autoRestoreMode && !CanUseAutoRestoreBrush())
@@ -570,10 +620,13 @@ public partial class MainWindow : Window
         _maskRevealMode = false;
         _selectionMode = false;
         _isSelecting = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
         _pickChroma = false;
         CropButton.Background = _cropMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         UpdateBrushButtons();
         UpdateSelectionButton();
+        UpdateMoveLayerButton();
         SetStatus(_cropMode ? "캔버스에서 자를 영역을 드래그하세요." : "자르기 선택 해제");
     }
 
@@ -593,7 +646,10 @@ public partial class MainWindow : Window
             (int)Math.Round(CropRect.Width),
             (int)Math.Round(CropRect.Height));
 
-        TransformAllLayers(bitmap => BitmapEditor.Crop(bitmap, rect));
+        TransformAllLayers(
+            bitmap => bitmap,
+            layer => (layer.OffsetX - rect.X, layer.OffsetY - rect.Y),
+            canvas => BitmapEditor.Crop(canvas, rect));
         if (_restoreSourceBitmap is not null)
         {
             _restoreSourceBitmap = BitmapEditor.Crop(_restoreSourceBitmap, rect);
@@ -621,10 +677,13 @@ public partial class MainWindow : Window
         _autoRestoreMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
         _pickChroma = false;
         CropRect.Visibility = Visibility.Collapsed;
         UpdateBrushButtons();
         UpdateSelectionButton();
+        UpdateMoveLayerButton();
         SetStatus(_selectionMode ? "캔버스에서 선택할 영역을 드래그하세요." : "선택 영역 도구 해제");
     }
 
@@ -654,12 +713,17 @@ public partial class MainWindow : Window
 
         PushUndo();
         int insertIndex = Math.Clamp(LayerList.SelectedIndex + 1, 0, _layers.Count);
+        Int32Rect layerRect = ToLayerRect(rect, activeLayer);
         BitmapSource extracted = BitmapEditor.ApplySelectionAlpha(
             activeLayer.Bitmap,
-            rect,
+            layerRect,
             keepInside: true,
             (int)SelectionFeatherSlider.Value);
-        var layer = new ImageLayer("선택 레이어", extracted);
+        var layer = new ImageLayer("선택 레이어", extracted)
+        {
+            OffsetX = activeLayer.OffsetX,
+            OffsetY = activeLayer.OffsetY
+        };
         AddLayer(layer, insertIndex);
         SelectLayer(layer);
         RefreshCompositeFromLayers();
@@ -676,10 +740,11 @@ public partial class MainWindow : Window
         }
 
         PushUndo();
+        Int32Rect layerRect = ToLayerRect(rect, activeLayer);
         BitmapSource mask = BitmapEditor.CreateSelectionMask(
             activeLayer.Bitmap.PixelWidth,
             activeLayer.Bitmap.PixelHeight,
-            rect,
+            layerRect,
             (int)SelectionFeatherSlider.Value,
             activeLayer.Bitmap.DpiX,
             activeLayer.Bitmap.DpiY);
@@ -705,9 +770,12 @@ public partial class MainWindow : Window
         }
 
         PushUndo();
+        Int32Rect editRect = GetActiveLayer() is ImageLayer activeLayer
+            ? ToLayerRect(rect, activeLayer)
+            : rect;
         BitmapSource edited = BitmapEditor.ApplySelectionAlpha(
             target,
-            rect,
+            editRect,
             keepInside,
             (int)SelectionFeatherSlider.Value);
         SetEditableBitmap(edited);
@@ -734,7 +802,9 @@ public partial class MainWindow : Window
         PushUndo();
         int width = Math.Max(1, (int)Math.Round(_currentBitmap.PixelWidth * ratio));
         int height = Math.Max(1, (int)Math.Round(_currentBitmap.PixelHeight * ratio));
-        TransformAllLayers(bitmap => BitmapEditor.Resize(bitmap, width, height));
+        TransformAllLayers(
+            bitmap => BitmapEditor.Resize(bitmap, width, height),
+            layer => ((int)Math.Round(layer.OffsetX * ratio), (int)Math.Round(layer.OffsetY * ratio)));
         if (_restoreSourceBitmap is not null)
         {
             _restoreSourceBitmap = BitmapEditor.Resize(_restoreSourceBitmap, width, height);
@@ -855,6 +925,8 @@ public partial class MainWindow : Window
         var layer = new ImageLayer($"{activeLayer.Name} 복사", activeLayer.Bitmap)
         {
             Mask = activeLayer.Mask,
+            OffsetX = activeLayer.OffsetX,
+            OffsetY = activeLayer.OffsetY,
             IsVisible = activeLayer.IsVisible,
             Opacity = activeLayer.Opacity,
             BlendMode = activeLayer.BlendMode
@@ -967,6 +1039,8 @@ public partial class MainWindow : Window
         _autoRestoreMode = false;
         _selectionMode = false;
         _isSelecting = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
         _pickChroma = false;
         UpdateBrushState();
     }
@@ -985,6 +1059,8 @@ public partial class MainWindow : Window
         _autoRestoreMode = false;
         _selectionMode = false;
         _isSelecting = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
         _pickChroma = false;
         UpdateBrushState();
     }
@@ -1065,6 +1141,111 @@ public partial class MainWindow : Window
         _layerOpacityEditCaptured = false;
         RecordHistory("레이어 불투명도 변경");
         SetStatus("레이어 불투명도를 변경했습니다.");
+    }
+
+    private void MoveLayerMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is null)
+        {
+            SetStatus("이동할 레이어가 없습니다.");
+            return;
+        }
+
+        _moveLayerMode = !_moveLayerMode;
+        _cropMode = false;
+        _isCropping = false;
+        _selectionMode = false;
+        _isSelecting = false;
+        _eraseMode = false;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
+        _pickChroma = false;
+        CropRect.Visibility = Visibility.Collapsed;
+        UpdateBrushButtons();
+        UpdateSelectionButton();
+        UpdateMoveLayerButton();
+        SetStatus(_moveLayerMode ? "캔버스에서 선택 레이어를 드래그하세요. Shift+방향키는 10px 이동입니다." : "레이어 이동 도구 해제");
+    }
+
+    private void ApplyLayerPosition_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("위치를 적용할 레이어가 없습니다.");
+            return;
+        }
+
+        int x = int.TryParse(LayerOffsetXBox.Text, out int parsedX) ? parsedX : activeLayer.OffsetX;
+        int y = int.TryParse(LayerOffsetYBox.Text, out int parsedY) ? parsedY : activeLayer.OffsetY;
+        if (x == activeLayer.OffsetX && y == activeLayer.OffsetY)
+        {
+            return;
+        }
+
+        PushUndo();
+        SetLayerOffset(activeLayer, x, y);
+        RecordHistory("레이어 위치 변경");
+        SetStatus($"레이어 위치: X {x}, Y {y}");
+    }
+
+    private void ResetLayerPosition_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("위치를 초기화할 레이어가 없습니다.");
+            return;
+        }
+
+        if (activeLayer.OffsetX == 0 && activeLayer.OffsetY == 0)
+        {
+            return;
+        }
+
+        PushUndo();
+        SetLayerOffset(activeLayer, 0, 0);
+        RecordHistory("레이어 원점 이동");
+        SetStatus("선택 레이어를 원점으로 이동했습니다.");
+    }
+
+    private void CenterLayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentBitmap is null || GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("중앙에 배치할 레이어가 없습니다.");
+            return;
+        }
+
+        int x = (int)Math.Round((_currentBitmap.PixelWidth - activeLayer.Bitmap.PixelWidth) / 2.0);
+        int y = (int)Math.Round((_currentBitmap.PixelHeight - activeLayer.Bitmap.PixelHeight) / 2.0);
+        if (x == activeLayer.OffsetX && y == activeLayer.OffsetY)
+        {
+            return;
+        }
+
+        PushUndo();
+        SetLayerOffset(activeLayer, x, y);
+        RecordHistory("레이어 중앙 배치");
+        SetStatus("선택 레이어를 캔버스 중앙에 배치했습니다.");
+    }
+
+    private void NudgeLayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string direction })
+        {
+            return;
+        }
+
+        int step = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 10 : 1;
+        _ = direction switch
+        {
+            "left" => NudgeActiveLayer(-step, 0, recordUndo: true),
+            "right" => NudgeActiveLayer(step, 0, recordUndo: true),
+            "up" => NudgeActiveLayer(0, -step, recordUndo: true),
+            "down" => NudgeActiveLayer(0, step, recordUndo: true),
+            _ => false
+        };
     }
 
     private void LayerBlendModeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1437,6 +1618,24 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_moveLayerMode)
+        {
+            if (GetActiveLayer() is not ImageLayer activeLayer)
+            {
+                SetStatus("이동할 레이어가 없습니다.");
+                return;
+            }
+
+            _isMovingLayer = true;
+            _layerMoveCaptured = false;
+            _layerMoveStart = imagePoint;
+            _layerMoveStartOffsetX = activeLayer.OffsetX;
+            _layerMoveStartOffsetY = activeLayer.OffsetY;
+            Mouse.Capture(ImageHost);
+            ImageHost.Cursor = Cursors.SizeAll;
+            return;
+        }
+
         if (_selectionMode)
         {
             _isSelecting = true;
@@ -1476,7 +1675,11 @@ public partial class MainWindow : Window
             UpdateBrushGhost(imagePoint);
         }
 
-        if (_isSelecting && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
+        if (_isMovingLayer && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
+        {
+            MoveActiveLayerTo(imagePoint);
+        }
+        else if (_isSelecting && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
         {
             SetSelectionFromPoints(_selectionStart, imagePoint);
         }
@@ -1505,6 +1708,19 @@ public partial class MainWindow : Window
         }
 
         _isCropping = false;
+        if (_isMovingLayer)
+        {
+            _isMovingLayer = false;
+            if (_layerMoveCaptured)
+            {
+                RecordHistory("레이어 이동");
+                if (GetActiveLayer() is ImageLayer activeLayer)
+                {
+                    SetStatus($"레이어 위치: X {activeLayer.OffsetX}, Y {activeLayer.OffsetY}");
+                }
+            }
+        }
+
         if (_isSelecting)
         {
             _isSelecting = false;
@@ -1514,6 +1730,7 @@ public partial class MainWindow : Window
         }
 
         _isPanning = false;
+        _layerMoveCaptured = false;
         _brushHistoryCaptured = false;
         _lastBrushPoint = null;
         ImageHost.Cursor = null;
@@ -1565,6 +1782,15 @@ public partial class MainWindow : Window
         return rect.Width > 1 && rect.Height > 1;
     }
 
+    private static Int32Rect ToLayerRect(Int32Rect canvasRect, ImageLayer layer)
+    {
+        return new Int32Rect(
+            canvasRect.X - layer.OffsetX,
+            canvasRect.Y - layer.OffsetY,
+            canvasRect.Width,
+            canvasRect.Height);
+    }
+
     private void UpdateSelectionOverlay()
     {
         if (!TryGetSelection(out Int32Rect rect))
@@ -1591,6 +1817,29 @@ public partial class MainWindow : Window
 
         SelectionRect.Visibility = Visibility.Collapsed;
         UpdateSelectionButton();
+    }
+
+    private void MoveActiveLayerTo(Point imagePoint)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            return;
+        }
+
+        int offsetX = _layerMoveStartOffsetX + (int)Math.Round(imagePoint.X - _layerMoveStart.X);
+        int offsetY = _layerMoveStartOffsetY + (int)Math.Round(imagePoint.Y - _layerMoveStart.Y);
+        if (offsetX == activeLayer.OffsetX && offsetY == activeLayer.OffsetY)
+        {
+            return;
+        }
+
+        if (!_layerMoveCaptured)
+        {
+            PushUndo();
+            _layerMoveCaptured = true;
+        }
+
+        SetLayerOffset(activeLayer, offsetX, offsetY);
     }
 
     private void AddImages(IEnumerable<string> paths)
@@ -2045,7 +2294,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.PropertyName is nameof(ImageLayer.IsVisible) or nameof(ImageLayer.Opacity) or nameof(ImageLayer.Bitmap) or nameof(ImageLayer.BlendMode) or nameof(ImageLayer.Mask))
+        if (e.PropertyName is nameof(ImageLayer.IsVisible) or nameof(ImageLayer.Opacity) or nameof(ImageLayer.Bitmap) or nameof(ImageLayer.BlendMode) or nameof(ImageLayer.Mask) or nameof(ImageLayer.OffsetX) or nameof(ImageLayer.OffsetY))
         {
             RefreshCompositeFromLayers();
             UpdateLayerControls();
@@ -2150,7 +2399,33 @@ public partial class MainWindow : Window
         UpdateLayerControls();
     }
 
-    private void TransformAllLayers(Func<BitmapSource, BitmapSource> transform)
+    private void SetLayerOffset(ImageLayer layer, int offsetX, int offsetY, bool refreshPreview = true)
+    {
+        _suppressLayerRefresh = true;
+        try
+        {
+            layer.OffsetX = offsetX;
+            layer.OffsetY = offsetY;
+        }
+        finally
+        {
+            _suppressLayerRefresh = false;
+        }
+
+        if (refreshPreview)
+        {
+            RefreshCompositeFromLayers();
+        }
+        else
+        {
+            UpdateLayerControls();
+        }
+    }
+
+    private void TransformAllLayers(
+        Func<BitmapSource, BitmapSource> transform,
+        Func<ImageLayer, (int OffsetX, int OffsetY)>? transformOffset = null,
+        Func<BitmapSource, BitmapSource>? transformCanvas = null)
     {
         if (_layers.Count == 0)
         {
@@ -2173,6 +2448,16 @@ public partial class MainWindow : Window
                 {
                     layer.Mask = transform(layer.Mask);
                 }
+
+                if (transformOffset is not null)
+                {
+                    (layer.OffsetX, layer.OffsetY) = transformOffset(layer);
+                }
+            }
+
+            if (_currentBitmap is not null)
+            {
+                _currentBitmap = (transformCanvas ?? transform)(_currentBitmap);
             }
         }
         finally
@@ -2190,12 +2475,12 @@ public partial class MainWindow : Window
             return _currentBitmap ?? BitmapEditor.CreateTransparent(1, 1);
         }
 
-        int width = Math.Max(1, _layers.Max(layer => layer.Bitmap.PixelWidth));
-        int height = Math.Max(1, _layers.Max(layer => layer.Bitmap.PixelHeight));
+        int width = Math.Max(1, _currentBitmap?.PixelWidth ?? _layers[0].Bitmap.PixelWidth);
+        int height = Math.Max(1, _currentBitmap?.PixelHeight ?? _layers[0].Bitmap.PixelHeight);
         BitmapSource first = _layers[0].Bitmap;
         var visibleLayers = _layers
             .Where(layer => layer.IsVisible)
-            .Select(layer => (layer.Bitmap, layer.Opacity / 100.0, layer.BlendMode, layer.Mask));
+            .Select(layer => (layer.Bitmap, layer.Opacity / 100.0, layer.BlendMode, layer.Mask, layer.OffsetX, layer.OffsetY));
 
         return BitmapEditor.CompositeLayers(visibleLayers, width, height, first.DpiX, first.DpiY);
     }
@@ -2216,7 +2501,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<ImageLayerSnapshot> CaptureLayers()
     {
         return _layers
-            .Select(layer => new ImageLayerSnapshot(layer.Name, layer.Bitmap, layer.Mask, layer.IsVisible, layer.Opacity, layer.BlendMode))
+            .Select(layer => new ImageLayerSnapshot(layer.Name, layer.Bitmap, layer.Mask, layer.OffsetX, layer.OffsetY, layer.IsVisible, layer.Opacity, layer.BlendMode))
             .ToArray();
     }
 
@@ -2232,6 +2517,8 @@ public partial class MainWindow : Window
                 AddLayer(new ImageLayer(snapshot.Name, snapshot.Bitmap)
                 {
                     Mask = snapshot.Mask,
+                    OffsetX = snapshot.OffsetX,
+                    OffsetY = snapshot.OffsetY,
                     IsVisible = snapshot.IsVisible,
                     Opacity = snapshot.Opacity,
                     BlendMode = snapshot.BlendMode
@@ -2289,6 +2576,10 @@ public partial class MainWindow : Window
             LayerNameBox.Text = activeLayer?.Name ?? "";
             LayerBlendModeBox.IsEnabled = activeLayer is not null;
             SetComboByTag(LayerBlendModeBox, activeLayer?.BlendMode.ToString() ?? nameof(ImageBlendMode.Normal));
+            LayerOffsetXBox.IsEnabled = activeLayer is not null;
+            LayerOffsetYBox.IsEnabled = activeLayer is not null;
+            LayerOffsetXBox.Text = activeLayer?.OffsetX.ToString() ?? "";
+            LayerOffsetYBox.Text = activeLayer?.OffsetY.ToString() ?? "";
         }
         finally
         {
@@ -2578,6 +2869,8 @@ public partial class MainWindow : Window
                 return;
             }
 
+            x -= activeLayer.OffsetX;
+            y -= activeLayer.OffsetY;
             BitmapSource mask = activeLayer.Mask
                 ?? BitmapEditor.CreateMask(activeLayer.Bitmap.PixelWidth, activeLayer.Bitmap.PixelHeight, 255, activeLayer.Bitmap.DpiX, activeLayer.Bitmap.DpiY);
             BitmapSource editedMask = BitmapEditor.ApplyMaskBrush(
@@ -2589,6 +2882,12 @@ public partial class MainWindow : Window
                 MaskBrushStrengthSlider.Value / 100.0);
             SetLayerMask(activeLayer, editedMask);
             return;
+        }
+
+        if (GetActiveLayer() is ImageLayer editLayer)
+        {
+            x -= editLayer.OffsetX;
+            y -= editLayer.OffsetY;
         }
 
         BitmapSource? target = GetEditableBitmap();
@@ -2693,6 +2992,7 @@ public partial class MainWindow : Window
     {
         UpdateBrushButtons();
         UpdateSelectionButton();
+        UpdateMoveLayerButton();
         SetStatus(_eraseMode ? "지우개 브러시 활성화"
             : _restoreMode ? "복원 브러시 활성화"
             : _autoRestoreMode ? "자동 복원 브러시 활성화: 전경으로 판단되는 부분만 복구"
@@ -2716,6 +3016,40 @@ public partial class MainWindow : Window
         SelectionButton.Foreground = _selectionMode ? new SolidColorBrush(Color.FromRgb(7, 19, 17)) : FindBrush("InkBrush");
     }
 
+    private void UpdateMoveLayerButton()
+    {
+        MoveLayerButton.Background = _moveLayerMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+        MoveLayerButton.Foreground = _moveLayerMode ? new SolidColorBrush(Color.FromRgb(7, 19, 17)) : FindBrush("InkBrush");
+    }
+
+    private bool NudgeActiveLayer(int dx, int dy, bool recordUndo)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("이동할 레이어가 없습니다.");
+            return false;
+        }
+
+        if (recordUndo)
+        {
+            PushUndo();
+        }
+
+        SetLayerOffset(activeLayer, activeLayer.OffsetX + dx, activeLayer.OffsetY + dy);
+        if (recordUndo)
+        {
+            RecordHistory("레이어 미세 이동");
+        }
+
+        SetStatus($"레이어 위치: X {activeLayer.OffsetX}, Y {activeLayer.OffsetY}");
+        return true;
+    }
+
+    private static bool IsTextInputFocused()
+    {
+        return Keyboard.FocusedElement is TextBox or ComboBox;
+    }
+
     private void ResetInteractionModes()
     {
         _cropMode = false;
@@ -2723,6 +3057,9 @@ public partial class MainWindow : Window
         _selectionMode = false;
         _isSelecting = false;
         _selectionRect = null;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
+        _layerMoveCaptured = false;
         _pickChroma = false;
         _eraseMode = false;
         _restoreMode = false;
@@ -2736,6 +3073,7 @@ public partial class MainWindow : Window
         CropButton.Background = FindBrush("PanelLiftBrush");
         UpdateBrushButtons();
         UpdateSelectionButton();
+        UpdateMoveLayerButton();
     }
 
     private void UpdateQueueText()

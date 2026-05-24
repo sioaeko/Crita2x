@@ -13,6 +13,7 @@
         SnapsToDevicePixels="True"
         SourceInitialized="Window_SourceInitialized"
         Loaded="Window_Loaded"
+        PreviewKeyDown="Window_PreviewKeyDown"
         AllowDrop="True"
         Drop="Window_Drop">
     <shell:WindowChrome.WindowChrome>
@@ -1044,6 +1045,48 @@
                                         ValueChanged="LayerOpacitySlider_ValueChanged"
                                         PreviewMouseLeftButtonDown="LayerOpacitySlider_MouseDown"
                                         PreviewMouseLeftButtonUp="LayerOpacitySlider_MouseUp" />
+
+                                <TextBlock Text="위치" Style="{StaticResource SectionTitle}" />
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="72" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="LayerOffsetXBox"
+                                             IsEnabled="False"
+                                             Margin="0,0,6,0"
+                                             ToolTip="레이어 X 위치" />
+                                    <TextBox x:Name="LayerOffsetYBox"
+                                             Grid.Column="1"
+                                             IsEnabled="False"
+                                             Margin="6,0,6,0"
+                                             ToolTip="레이어 Y 위치" />
+                                    <Button Grid.Column="2"
+                                            Click="ApplyLayerPosition_Click">적용</Button>
+                                </Grid>
+                                <UniformGrid Columns="3" Margin="0,0,0,8">
+                                    <Button x:Name="MoveLayerButton"
+                                            Click="MoveLayerMode_Click"
+                                            Margin="0,0,6,8">이동</Button>
+                                    <Button Click="ResetLayerPosition_Click"
+                                            Margin="3,0,3,8">원점</Button>
+                                    <Button Click="CenterLayer_Click"
+                                            Margin="6,0,0,8">중앙</Button>
+                                    <Button Click="NudgeLayer_Click"
+                                            Tag="left"
+                                            Margin="0,0,6,0">←</Button>
+                                    <Button Click="NudgeLayer_Click"
+                                            Tag="up"
+                                            Margin="3,0,3,0">↑</Button>
+                                    <Button Click="NudgeLayer_Click"
+                                            Tag="right"
+                                            Margin="6,0,0,0">→</Button>
+                                </UniformGrid>
+                                <Button Click="NudgeLayer_Click"
+                                        Tag="down"
+                                        Margin="0,0,0,8">↓</Button>
+
                                 <Button Click="MergeVisibleLayers_Click"
                                         Margin="0,6,0,0">보이는 레이어 병합</Button>
 
@@ -1144,6 +1187,10 @@
                                                 <TextBlock Text="{Binding Detail}"
                                                            Style="{StaticResource MutedText}"
                                                            Margin="0,4,0,0"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding PositionText}"
+                                                           Style="{StaticResource MutedText}"
+                                                           Margin="0,2,0,0"
                                                            TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Text="{Binding BlendModeText}"
                                                            Style="{StaticResource MutedText}"

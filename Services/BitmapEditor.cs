@@ -87,7 +87,6 @@ public static class BitmapEditor
         byte[] pixels = new byte[stride * height];
         source.CopyPixels(pixels, stride, 0);
 
-        rect = ClampRect(rect, width, height);
         feather = Math.Clamp(feather, 0, 256);
         for (int y = 0; y < height; y++)
         {
@@ -113,7 +112,6 @@ public static class BitmapEditor
     {
         width = Math.Max(1, width);
         height = Math.Max(1, height);
-        rect = ClampRect(rect, width, height);
         feather = Math.Clamp(feather, 0, 256);
         int stride = width * 4;
         byte[] pixels = new byte[stride * height];
@@ -639,7 +637,7 @@ public static class BitmapEditor
     }
 
     public static BitmapSource CompositeLayers(
-        IEnumerable<(BitmapSource Bitmap, double Opacity, ImageBlendMode BlendMode, BitmapSource? Mask)> layers,
+        IEnumerable<(BitmapSource Bitmap, double Opacity, ImageBlendMode BlendMode, BitmapSource? Mask, int OffsetX, int OffsetY)> layers,
         int width,
         int height,
         double dpiX,
@@ -650,7 +648,7 @@ public static class BitmapEditor
         int outputStride = width * 4;
         byte[] output = new byte[outputStride * height];
 
-        foreach ((BitmapSource layerSource, double opacityValue, ImageBlendMode blendMode, BitmapSource? maskSource) in layers)
+        foreach ((BitmapSource layerSource, double opacityValue, ImageBlendMode blendMode, BitmapSource? maskSource, int offsetX, int offsetY) in layers)
         {
             double opacity = Math.Clamp(opacityValue, 0, 1);
             if (opacity <= 0)
@@ -659,8 +657,6 @@ public static class BitmapEditor
             }
 
             BitmapSource layer = ToBgra32(layerSource);
-            int layerWidth = Math.Min(width, layer.PixelWidth);
-            int layerHeight = Math.Min(height, layer.PixelHeight);
             int layerStride = layer.PixelWidth * 4;
             byte[] input = new byte[layerStride * layer.PixelHeight];
             layer.CopyPixels(input, layerStride, 0);
@@ -673,14 +669,26 @@ public static class BitmapEditor
                 mask.CopyPixels(maskPixels, maskStride, 0);
             }
 
-            for (int y = 0; y < layerHeight; y++)
+            for (int y = 0; y < layer.PixelHeight; y++)
             {
-                int sourceRow = y * layerStride;
-                int outputRow = y * outputStride;
-                for (int x = 0; x < layerWidth; x++)
+                int outputY = y + offsetY;
+                if (outputY < 0 || outputY >= height)
                 {
+                    continue;
+                }
+
+                int sourceRow = y * layerStride;
+                int outputRow = outputY * outputStride;
+                for (int x = 0; x < layer.PixelWidth; x++)
+                {
+                    int outputX = x + offsetX;
+                    if (outputX < 0 || outputX >= width)
+                    {
+                        continue;
+                    }
+
                     int sourceIndex = sourceRow + (x * 4);
-                    int outputIndex = outputRow + (x * 4);
+                    int outputIndex = outputRow + (outputX * 4);
                     double maskAlpha = GetMaskAlpha(maskPixels, mask, maskStride, x, y);
                     double sourceAlpha = (input[sourceIndex + 3] / 255.0) * opacity * maskAlpha;
                     if (sourceAlpha <= 0)

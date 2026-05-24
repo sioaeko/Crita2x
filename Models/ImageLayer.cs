@@ -9,6 +9,8 @@ public sealed class ImageLayer : INotifyPropertyChanged
     private string _name;
     private BitmapSource _bitmap;
     private BitmapSource? _mask;
+    private int _offsetX;
+    private int _offsetY;
     private bool _isVisible = true;
     private double _opacity = 100;
     private ImageBlendMode _blendMode = ImageBlendMode.Normal;
@@ -66,6 +68,38 @@ public sealed class ImageLayer : INotifyPropertyChanged
         set => SetField(ref _isVisible, value);
     }
 
+    public int OffsetX
+    {
+        get => _offsetX;
+        set
+        {
+            if (_offsetX == value)
+            {
+                return;
+            }
+
+            _offsetX = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(PositionText));
+        }
+    }
+
+    public int OffsetY
+    {
+        get => _offsetY;
+        set
+        {
+            if (_offsetY == value)
+            {
+                return;
+            }
+
+            _offsetY = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(PositionText));
+        }
+    }
+
     public double Opacity
     {
         get => _opacity;
@@ -100,6 +134,8 @@ public sealed class ImageLayer : INotifyPropertyChanged
     }
 
     public string Detail => $"{Bitmap.PixelWidth} x {Bitmap.PixelHeight}";
+
+    public string PositionText => $"X {OffsetX} · Y {OffsetY}";
 
     public string OpacityText => $"{Opacity:F0}%";
 
