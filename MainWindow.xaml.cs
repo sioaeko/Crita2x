@@ -163,9 +163,19 @@ public partial class MainWindow : Window
         bool alt = modifiers.HasFlag(ModifierKeys.Alt);
         bool textInputFocused = IsTextInputFocused();
 
+        if (textInputFocused && ctrl && IsTextEditingShortcut(e.Key))
+        {
+            return;
+        }
+
         if (ctrl && !alt && HandleCommandShortcut(sender, e, shift))
         {
             e.Handled = true;
+            return;
+        }
+
+        if (ctrl)
+        {
             return;
         }
 
@@ -242,6 +252,18 @@ public partial class MainWindow : Window
             case Key.S:
                 SaveCurrent_Click(sender, e);
                 return true;
+            case Key.C:
+                CopySelection_Click(sender, e);
+                return true;
+            case Key.X:
+                CutSelection_Click(sender, e);
+                return true;
+            case Key.V:
+                PasteClipboard_Click(sender, e);
+                return true;
+            case Key.A:
+                SelectAll_Click(sender, e);
+                return true;
             case Key.Enter when shift:
                 RunQueue_Click(sender, e);
                 return true;
@@ -285,6 +307,11 @@ public partial class MainWindow : Window
             default:
                 return false;
         }
+    }
+
+    private static bool IsTextEditingShortcut(Key key)
+    {
+        return key is Key.A or Key.C or Key.V or Key.X or Key.Z or Key.Y or Key.Left or Key.Right or Key.Back or Key.Delete;
     }
 
     private bool HandleToolShortcut(object sender, KeyEventArgs e, bool shift)
@@ -1145,6 +1172,209 @@ public partial class MainWindow : Window
         RefreshCompositeFromLayers();
         RecordHistory("선택 영역 마스크화");
         SetStatus("선택 영역을 레이어 마스크로 바꿨습니다.");
+    }
+
+    private void SelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        _selectionRect = new Int32Rect(0, 0, _currentBitmap!.PixelWidth, _currentBitmap.PixelHeight);
+        _selectionMask = null;
+        _selectionMode = false;
+        _magicWandMode = false;
+        _isSelecting = false;
+        ClearLassoMode();
+        UpdateSelectionOverlay();
+        UpdateSelectionButton();
+        SetStatus("전체 선택");
+    }
+
+    private void CopySelection_Click(object sender, RoutedEventArgs e)
+    {
+        _ = CopyCurrentEditToClipboard();
+    }
+
+    private void CutSelection_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureActiveLayerEditable("잘라내기") || !CopyCurrentEditToClipboard())
+        {
+            return;
+        }
+
+        if (TryGetSelection(out _))
+        {
+            ApplySelectionAlpha(keepInside: false, "선택 영역 잘라내기", "선택 영역을 클립보드로 잘라냈습니다.");
+            return;
+        }
+
+        BitmapSource? target = GetEditableBitmap();
+        if (target is null)
+        {
+            SetStatus("잘라낼 이미지가 없습니다.");
+            return;
+        }
+
+        PushUndo();
+        BitmapSource transparent = BitmapEditor.CreateTransparent(target.PixelWidth, target.PixelHeight, target.DpiX, target.DpiY);
+        if (!SetEditableBitmap(transparent))
+        {
+            return;
+        }
+
+        RecordHistory("레이어 잘라내기");
+        SetStatus("레이어 내용을 클립보드로 잘라냈습니다.");
+    }
+
+    private void PasteClipboard_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetClipboardBitmap(out BitmapSource pasted))
+        {
+            return;
+        }
+
+        pasted = BitmapEditor.ToBgra32(pasted);
+        if (_currentBitmap is null)
+        {
+            CreateCanvasFromClipboard(pasted);
+            return;
+        }
+
+        PushUndo();
+        var layer = new ImageLayer($"붙여넣기 {_layers.Count + 1}", pasted);
+        (layer.OffsetX, layer.OffsetY) = GetPasteOffset(pasted);
+        AddLayer(layer, Math.Clamp(LayerList.SelectedIndex + 1, 0, _layers.Count));
+        SelectLayer(layer);
+        RefreshCompositeFromLayers();
+        RecordHistory("클립보드 붙여넣기");
+        SetStatus($"클립보드 이미지를 새 레이어로 붙여넣었습니다: {pasted.PixelWidth} x {pasted.PixelHeight}");
+    }
+
+    private bool CopyCurrentEditToClipboard()
+    {
+        if (!TryBuildClipboardBitmap(out BitmapSource bitmap, out string label))
+        {
+            return false;
+        }
+
+        try
+        {
+            Clipboard.SetImage(bitmap);
+            SetStatus($"{label}을 클립보드에 복사했습니다.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"클립보드 복사 실패: {ex.Message}");
+            return false;
+        }
+    }
+
+    private bool TryBuildClipboardBitmap(out BitmapSource bitmap, out string label)
+    {
+        bitmap = null!;
+        label = "";
+        if (_currentBitmap is null)
+        {
+            SetStatus("복사할 이미지가 없습니다.");
+            return false;
+        }
+
+        ImageLayer? activeLayer = GetActiveLayer();
+        BitmapSource? target = activeLayer?.Bitmap ?? _currentBitmap;
+        if (target is null)
+        {
+            SetStatus("복사할 이미지가 없습니다.");
+            return false;
+        }
+
+        BitmapSource source = activeLayer?.Mask is BitmapSource layerMask
+            ? BitmapEditor.ApplySelectionMaskAlpha(activeLayer.Bitmap, layerMask, keepInside: true)
+            : target;
+
+        if (TryGetSelection(out _))
+        {
+            if (!TryGetSelectionMaskForTarget(source, activeLayer, out BitmapSource selectionMask))
+            {
+                SetStatus("선택 영역이 복사 대상과 겹치지 않습니다.");
+                return false;
+            }
+
+            BitmapSource masked = BitmapEditor.ApplySelectionMaskAlpha(source, selectionMask, keepInside: true);
+            Int32Rect bounds = BitmapEditor.GetTransparentBounds(masked, threshold: 1);
+            bitmap = BitmapEditor.Crop(masked, bounds);
+            label = $"선택 영역 {bitmap.PixelWidth} x {bitmap.PixelHeight}";
+            return true;
+        }
+
+        bitmap = source;
+        label = activeLayer is null ? "현재 이미지" : $"레이어 '{activeLayer.Name}'";
+        return true;
+    }
+
+    private bool TryGetClipboardBitmap(out BitmapSource bitmap)
+    {
+        bitmap = null!;
+        try
+        {
+            if (!Clipboard.ContainsImage())
+            {
+                SetStatus("클립보드에 붙여넣을 이미지가 없습니다.");
+                return false;
+            }
+
+            BitmapSource? image = Clipboard.GetImage();
+            if (image is null)
+            {
+                SetStatus("클립보드 이미지를 읽지 못했습니다.");
+                return false;
+            }
+
+            bitmap = image;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"클립보드 읽기 실패: {ex.Message}");
+            return false;
+        }
+    }
+
+    private void CreateCanvasFromClipboard(BitmapSource pasted)
+    {
+        _originalBitmap = pasted;
+        _restoreSourceBitmap = pasted;
+        _compareBaselineBitmap = pasted;
+        _currentBitmap = pasted;
+        _currentPath = null;
+        _compareMode = false;
+        ClearLayers();
+        var layer = new ImageLayer("클립보드 이미지", pasted);
+        AddLayer(layer);
+        SelectLayer(layer);
+        ClearHistory();
+        ResetInteractionModes();
+        _zoom = 1.0;
+        UpdatePreview(pasted, null);
+        RecordHistory("클립보드에서 새 이미지");
+        Dispatcher.BeginInvoke(new Action(FitImageToView));
+        SetStatus($"클립보드 이미지로 새 캔버스를 만들었습니다: {pasted.PixelWidth} x {pasted.PixelHeight}");
+    }
+
+    private (int X, int Y) GetPasteOffset(BitmapSource pasted)
+    {
+        if (TryGetSelection(out Int32Rect rect))
+        {
+            int x = rect.X + (int)Math.Round((rect.Width - pasted.PixelWidth) / 2.0);
+            int y = rect.Y + (int)Math.Round((rect.Height - pasted.PixelHeight) / 2.0);
+            return (x, y);
+        }
+
+        int centerX = (int)Math.Round((_currentBitmap!.PixelWidth - pasted.PixelWidth) / 2.0);
+        int centerY = (int)Math.Round((_currentBitmap.PixelHeight - pasted.PixelHeight) / 2.0);
+        return (centerX, centerY);
     }
 
     private void ApplySelectionAlpha(bool keepInside, string historyLabel, string status)

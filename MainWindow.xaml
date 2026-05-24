@@ -1167,6 +1167,10 @@
                                     <Button Click="KeepSelectionArea_Click" Margin="6,0,0,8">선택만 남기기</Button>
                                     <Button Click="ExtractSelectionLayer_Click" Margin="0,0,6,0">새 레이어로</Button>
                                     <Button Click="SelectionToMask_Click" Margin="6,0,0,0">마스크로</Button>
+                                    <Button Click="CopySelection_Click" Margin="0,8,6,0" ToolTip="선택 영역 또는 현재 레이어 복사 (Ctrl+C)">복사</Button>
+                                    <Button Click="CutSelection_Click" Margin="6,8,0,0" ToolTip="선택 영역 또는 현재 레이어 잘라내기 (Ctrl+X)">잘라내기</Button>
+                                    <Button Click="PasteClipboard_Click" Margin="0,8,6,0" ToolTip="클립보드 이미지를 새 레이어로 붙여넣기 (Ctrl+V)">붙여넣기</Button>
+                                    <Button Click="SelectAll_Click" Margin="6,8,0,0" ToolTip="전체 선택 (Ctrl+A)">전체 선택</Button>
                                 </UniformGrid>
 
                                 <TextBlock Text="긴 변 리사이즈" Style="{StaticResource ToolLabel}" />
