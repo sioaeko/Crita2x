@@ -20,6 +20,8 @@ public sealed record LevelSettings(
     double OutputBlack,
     double OutputWhite);
 
+public sealed record MagicWandSelection(BitmapSource Mask, Int32Rect Bounds, int PixelCount);
+
 public static class BitmapEditor
 {
     public static BitmapSource LoadBitmap(string path)
@@ -109,6 +111,33 @@ public static class BitmapEditor
         return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
     }
 
+    public static BitmapSource ApplySelectionMaskAlpha(BitmapSource source, BitmapSource mask, bool keepInside)
+    {
+        source = ToBgra32(source);
+        mask = ToBgra32(mask);
+        if (mask.PixelWidth != source.PixelWidth || mask.PixelHeight != source.PixelHeight)
+        {
+            mask = Resize(mask, source.PixelWidth, source.PixelHeight);
+        }
+
+        int width = source.PixelWidth;
+        int height = source.PixelHeight;
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        byte[] maskPixels = new byte[stride * height];
+        source.CopyPixels(pixels, stride, 0);
+        mask.CopyPixels(maskPixels, stride, 0);
+
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            double coverage = (maskPixels[i] / 255.0) * (maskPixels[i + 3] / 255.0);
+            double alphaFactor = keepInside ? coverage : 1.0 - coverage;
+            pixels[i + 3] = ClampToByte(pixels[i + 3] * alphaFactor);
+        }
+
+        return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
+    }
+
     public static BitmapSource CreateSelectionMask(
         int width,
         int height,
@@ -136,6 +165,249 @@ public static class BitmapEditor
         }
 
         return CreateBitmap(pixels, width, height, dpiX, dpiY);
+    }
+
+    public static MagicWandSelection CreateMagicWandSelectionMask(
+        BitmapSource source,
+        int seedX,
+        int seedY,
+        int tolerance,
+        int feather)
+    {
+        source = ToBgra32(source);
+        int width = source.PixelWidth;
+        int height = source.PixelHeight;
+        int stride = width * 4;
+        seedX = Math.Clamp(seedX, 0, Math.Max(0, width - 1));
+        seedY = Math.Clamp(seedY, 0, Math.Max(0, height - 1));
+        tolerance = Math.Clamp(tolerance, 1, 512);
+        feather = Math.Clamp(feather, 0, 96);
+
+        byte[] pixels = new byte[stride * height];
+        source.CopyPixels(pixels, stride, 0);
+        int seedIndex = (seedY * stride) + (seedX * 4);
+        byte seedB = pixels[seedIndex];
+        byte seedG = pixels[seedIndex + 1];
+        byte seedR = pixels[seedIndex + 2];
+        byte seedA = pixels[seedIndex + 3];
+
+        bool[] visited = new bool[width * height];
+        bool[] selected = new bool[width * height];
+        int[] queue = new int[width * height];
+        int head = 0;
+        int tail = 0;
+        int minX = seedX;
+        int maxX = seedX;
+        int minY = seedY;
+        int maxY = seedY;
+        int pixelCount = 0;
+
+        TryAdd(seedX, seedY);
+        while (head < tail)
+        {
+            int packed = queue[head++];
+            int x = packed % width;
+            int y = packed / width;
+            TryAdd(x - 1, y);
+            TryAdd(x + 1, y);
+            TryAdd(x, y - 1);
+            TryAdd(x, y + 1);
+        }
+
+        byte[] mask = new byte[stride * height];
+        for (int i = 0; i < selected.Length; i++)
+        {
+            int index = i * 4;
+            byte value = selected[i] ? (byte)255 : (byte)0;
+            mask[index] = value;
+            mask[index + 1] = value;
+            mask[index + 2] = value;
+            mask[index + 3] = 255;
+        }
+
+        if (feather > 0)
+        {
+            int blurRadius = Math.Clamp((int)Math.Round(feather / 4.0), 1, 18);
+            mask = BoxBlurFast(mask, width, height, blurRadius);
+            if (feather > 36)
+            {
+                mask = BoxBlurFast(mask, width, height, Math.Max(1, blurRadius / 2));
+            }
+        }
+
+        var bounds = new Int32Rect(minX, minY, Math.Max(1, maxX - minX + 1), Math.Max(1, maxY - minY + 1));
+        return new MagicWandSelection(CreateBitmap(mask, width, height, source.DpiX, source.DpiY), bounds, pixelCount);
+
+        void TryAdd(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= width || y >= height)
+            {
+                return;
+            }
+
+            int packed = (y * width) + x;
+            if (visited[packed])
+            {
+                return;
+            }
+
+            visited[packed] = true;
+            int index = (y * stride) + (x * 4);
+            if (BgraDistance(pixels, index, seedB, seedG, seedR, seedA) > tolerance)
+            {
+                return;
+            }
+
+            selected[packed] = true;
+            queue[tail++] = packed;
+            pixelCount++;
+            minX = Math.Min(minX, x);
+            maxX = Math.Max(maxX, x);
+            minY = Math.Min(minY, y);
+            maxY = Math.Max(maxY, y);
+        }
+    }
+
+    public static BitmapSource PlaceMaskOnCanvas(
+        BitmapSource mask,
+        int canvasWidth,
+        int canvasHeight,
+        int offsetX,
+        int offsetY,
+        double dpiX = 96,
+        double dpiY = 96)
+    {
+        mask = ToBgra32(mask);
+        canvasWidth = Math.Max(1, canvasWidth);
+        canvasHeight = Math.Max(1, canvasHeight);
+        int canvasStride = canvasWidth * 4;
+        int maskStride = mask.PixelWidth * 4;
+        byte[] maskPixels = new byte[maskStride * mask.PixelHeight];
+        byte[] output = new byte[canvasStride * canvasHeight];
+        mask.CopyPixels(maskPixels, maskStride, 0);
+
+        for (int i = 3; i < output.Length; i += 4)
+        {
+            output[i] = 255;
+        }
+
+        for (int y = 0; y < mask.PixelHeight; y++)
+        {
+            int canvasY = y + offsetY;
+            if (canvasY < 0 || canvasY >= canvasHeight)
+            {
+                continue;
+            }
+
+            for (int x = 0; x < mask.PixelWidth; x++)
+            {
+                int canvasX = x + offsetX;
+                if (canvasX < 0 || canvasX >= canvasWidth)
+                {
+                    continue;
+                }
+
+                int sourceIndex = (y * maskStride) + (x * 4);
+                int outputIndex = (canvasY * canvasStride) + (canvasX * 4);
+                byte value = maskPixels[sourceIndex];
+                output[outputIndex] = value;
+                output[outputIndex + 1] = value;
+                output[outputIndex + 2] = value;
+            }
+        }
+
+        return CreateBitmap(output, canvasWidth, canvasHeight, dpiX, dpiY);
+    }
+
+    public static BitmapSource ProjectCanvasSelectionMask(
+        BitmapSource canvasMask,
+        int width,
+        int height,
+        int offsetX,
+        int offsetY,
+        double dpiX = 96,
+        double dpiY = 96)
+    {
+        canvasMask = ToBgra32(canvasMask);
+        width = Math.Max(1, width);
+        height = Math.Max(1, height);
+        int canvasStride = canvasMask.PixelWidth * 4;
+        int stride = width * 4;
+        byte[] canvasPixels = new byte[canvasStride * canvasMask.PixelHeight];
+        byte[] output = new byte[stride * height];
+        canvasMask.CopyPixels(canvasPixels, canvasStride, 0);
+
+        for (int i = 3; i < output.Length; i += 4)
+        {
+            output[i] = 255;
+        }
+
+        for (int y = 0; y < height; y++)
+        {
+            int canvasY = y + offsetY;
+            if (canvasY < 0 || canvasY >= canvasMask.PixelHeight)
+            {
+                continue;
+            }
+
+            for (int x = 0; x < width; x++)
+            {
+                int canvasX = x + offsetX;
+                if (canvasX < 0 || canvasX >= canvasMask.PixelWidth)
+                {
+                    continue;
+                }
+
+                int sourceIndex = (canvasY * canvasStride) + (canvasX * 4);
+                int outputIndex = (y * stride) + (x * 4);
+                byte value = canvasPixels[sourceIndex];
+                output[outputIndex] = value;
+                output[outputIndex + 1] = value;
+                output[outputIndex + 2] = value;
+            }
+        }
+
+        return CreateBitmap(output, width, height, dpiX, dpiY);
+    }
+
+    public static BitmapSource CreateSelectionOverlay(BitmapSource mask, Color color, double opacity)
+    {
+        mask = ToBgra32(mask);
+        int width = mask.PixelWidth;
+        int height = mask.PixelHeight;
+        int stride = width * 4;
+        byte[] maskPixels = new byte[stride * height];
+        byte[] output = new byte[stride * height];
+        mask.CopyPixels(maskPixels, stride, 0);
+        opacity = Math.Clamp(opacity, 0, 1);
+
+        for (int i = 0; i < output.Length; i += 4)
+        {
+            double coverage = (maskPixels[i] / 255.0) * (maskPixels[i + 3] / 255.0);
+            output[i] = color.B;
+            output[i + 1] = color.G;
+            output[i + 2] = color.R;
+            output[i + 3] = ClampToByte(coverage * opacity * 255);
+        }
+
+        return CreateBitmap(output, width, height, mask.DpiX, mask.DpiY);
+    }
+
+    public static bool HasMaskCoverage(BitmapSource mask)
+    {
+        mask = ToBgra32(mask);
+        int stride = mask.PixelWidth * 4;
+        byte[] pixels = new byte[stride * mask.PixelHeight];
+        mask.CopyPixels(pixels, stride, 0);
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            if (pixels[i] > 0 && pixels[i + 3] > 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static BitmapSource Resize(BitmapSource source, int width, int height)
@@ -1120,6 +1392,15 @@ public static class BitmapEditor
         return Math.Sqrt((db * db) + (dg * dg) + (dr * dr));
     }
 
+    private static double BgraDistance(byte[] pixels, int index, byte b, byte g, byte r, byte a)
+    {
+        double db = pixels[index] - b;
+        double dg = pixels[index + 1] - g;
+        double dr = pixels[index + 2] - r;
+        double da = (pixels[index + 3] - a) * 1.2;
+        return Math.Sqrt((db * db) + (dg * dg) + (dr * dr) + (da * da));
+    }
+
     private static double ColorDistanceBetween(byte[] pixels, int firstIndex, int secondIndex)
     {
         double db = pixels[firstIndex] - pixels[secondIndex];
@@ -1158,6 +1439,118 @@ public static class BitmapEditor
         }
 
         seeds.Add(new ColorSeed(pixels[index], pixels[index + 1], pixels[index + 2]));
+    }
+
+    private static byte[] BoxBlurFast(byte[] pixels, int width, int height, int radius)
+    {
+        if (radius <= 0)
+        {
+            return pixels.ToArray();
+        }
+
+        int stride = width * 4;
+        byte[] horizontal = new byte[pixels.Length];
+        byte[] output = new byte[pixels.Length];
+
+        for (int y = 0; y < height; y++)
+        {
+            int sumB = 0;
+            int sumG = 0;
+            int sumR = 0;
+            int sumA = 0;
+            int count = 0;
+            for (int x = 0; x <= Math.Min(width - 1, radius); x++)
+            {
+                int index = (y * stride) + (x * 4);
+                sumB += pixels[index];
+                sumG += pixels[index + 1];
+                sumR += pixels[index + 2];
+                sumA += pixels[index + 3];
+                count++;
+            }
+
+            for (int x = 0; x < width; x++)
+            {
+                int outputIndex = (y * stride) + (x * 4);
+                horizontal[outputIndex] = (byte)(sumB / count);
+                horizontal[outputIndex + 1] = (byte)(sumG / count);
+                horizontal[outputIndex + 2] = (byte)(sumR / count);
+                horizontal[outputIndex + 3] = (byte)(sumA / count);
+
+                int removeX = x - radius;
+                if (removeX >= 0)
+                {
+                    int removeIndex = (y * stride) + (removeX * 4);
+                    sumB -= pixels[removeIndex];
+                    sumG -= pixels[removeIndex + 1];
+                    sumR -= pixels[removeIndex + 2];
+                    sumA -= pixels[removeIndex + 3];
+                    count--;
+                }
+
+                int addX = x + radius + 1;
+                if (addX < width)
+                {
+                    int addIndex = (y * stride) + (addX * 4);
+                    sumB += pixels[addIndex];
+                    sumG += pixels[addIndex + 1];
+                    sumR += pixels[addIndex + 2];
+                    sumA += pixels[addIndex + 3];
+                    count++;
+                }
+            }
+        }
+
+        for (int x = 0; x < width; x++)
+        {
+            int sumB = 0;
+            int sumG = 0;
+            int sumR = 0;
+            int sumA = 0;
+            int count = 0;
+            for (int y = 0; y <= Math.Min(height - 1, radius); y++)
+            {
+                int index = (y * stride) + (x * 4);
+                sumB += horizontal[index];
+                sumG += horizontal[index + 1];
+                sumR += horizontal[index + 2];
+                sumA += horizontal[index + 3];
+                count++;
+            }
+
+            for (int y = 0; y < height; y++)
+            {
+                int outputIndex = (y * stride) + (x * 4);
+                output[outputIndex] = (byte)(sumB / count);
+                output[outputIndex + 1] = (byte)(sumG / count);
+                output[outputIndex + 2] = (byte)(sumR / count);
+                output[outputIndex + 3] = (byte)(sumA / count);
+
+                int removeY = y - radius;
+                if (removeY >= 0)
+                {
+                    int removeIndex = (removeY * stride) + (x * 4);
+                    sumB -= horizontal[removeIndex];
+                    sumG -= horizontal[removeIndex + 1];
+                    sumR -= horizontal[removeIndex + 2];
+                    sumA -= horizontal[removeIndex + 3];
+                    count--;
+                }
+
+                int addY = y + radius + 1;
+                if (addY < height)
+                {
+                    int addIndex = (addY * stride) + (x * 4);
+                    sumB += horizontal[addIndex];
+                    sumG += horizontal[addIndex + 1];
+                    sumR += horizontal[addIndex + 2];
+                    sumA += horizontal[addIndex + 3];
+                    count++;
+                }
+            }
+        }
+
+        return output;
     }
 
     private static byte[] BoxBlur(byte[] pixels, int width, int height, int radius)
