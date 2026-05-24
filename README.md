@@ -28,6 +28,19 @@ Crita2x는 [`waifu2x-ncnn-vulkan`](https://github.com/nihui/waifu2x-ncnn-vulkan)
 | 기록 | 편집 작업 히스토리 표시, 이전 작업 시점으로 즉시 이동, undo/redo 연동 |
 | 내보내기 | PNG, JPEG, TIFF, BMP 저장과 결과 폴더 열기 |
 
+## 빠른 조작
+
+| 단축키 | 동작 |
+| --- | --- |
+| `Ctrl+O`, `Ctrl+S` | 이미지 추가, 현재 이미지 저장 |
+| `Ctrl+Enter`, `Ctrl+Shift+Enter` | 선택 항목 실행, 대기열 전체 실행 |
+| `Ctrl+Z`, `Ctrl+Y`, `Ctrl+Shift+Z` | 실행 취소, 다시 실행 |
+| `Ctrl+0`, `Ctrl+1`, `Ctrl++`, `Ctrl+-` | 화면 맞춤, 100%, 확대, 축소 |
+| `M`, `L`, `W`, `C`, `V` | 영역 선택, 올가미, 마술봉, 자르기, 레이어 이동 |
+| `E`, `R`/`B`, `A`, `S`, `O`, `Shift+O` | 지우개, 복원, 자동 복원, 복제 도장, 닷지, 번 |
+| `Ctrl+D`, `Delete` | 선택 해제, 선택 영역 지우기 |
+| `Ctrl+J`, `Ctrl+Shift+N` | 레이어 복제, 빈 레이어 추가 |
+
 ## 실행 요구 사항
 
 - Windows 10 이상

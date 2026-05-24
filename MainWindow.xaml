@@ -104,19 +104,19 @@
                             VerticalAlignment="Center"
                             HorizontalAlignment="Left"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                    <Button Style="{StaticResource PrimaryButton}" Click="OpenImages_Click" Margin="0,0,8,0">
+                    <Button Style="{StaticResource PrimaryButton}" Click="OpenImages_Click" Margin="0,0,8,0" ToolTip="이미지 추가 (Ctrl+O)">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&#xE8E5;" Style="{StaticResource ButtonIconGlyph}" />
                             <TextBlock Text="이미지 추가" Foreground="#071311" />
                         </StackPanel>
                     </Button>
-                    <Button Click="RunSelected_Click" Margin="0,0,8,0" ToolTip="선택 항목 업스케일">
+                    <Button Click="RunSelected_Click" Margin="0,0,8,0" ToolTip="선택 항목 업스케일 (Ctrl+Enter)">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&#xE768;" Style="{StaticResource ButtonIconGlyph}" />
                             <TextBlock Text="선택 실행" />
                         </StackPanel>
                     </Button>
-                    <Button Click="RunQueue_Click" Margin="0,0,8,0" ToolTip="대기열 전체 업스케일">
+                    <Button Click="RunQueue_Click" Margin="0,0,8,0" ToolTip="대기열 전체 업스케일 (Ctrl+Shift+Enter)">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&#xE8B1;" Style="{StaticResource ButtonIconGlyph}" />
                             <TextBlock Text="전체 실행" />
@@ -151,12 +151,12 @@
                     <Button Style="{StaticResource IconButton}"
                             Click="Undo_Click"
                             Margin="0,0,4,0"
-                            ToolTip="실행 취소">
+                            ToolTip="실행 취소 (Ctrl+Z)">
                         <TextBlock Text="&#xE7A7;" Style="{StaticResource IconOnlyGlyph}" />
                     </Button>
                     <Button Style="{StaticResource IconButton}"
                             Click="Redo_Click"
-                            ToolTip="다시 실행">
+                            ToolTip="다시 실행 (Ctrl+Y / Ctrl+Shift+Z)">
                         <TextBlock Text="&#xE7A6;" Style="{StaticResource IconOnlyGlyph}" />
                     </Button>
                 </StackPanel>
@@ -656,7 +656,7 @@
                                 Margin="8,0">
                         <Button Style="{StaticResource IconButton}"
                                 Click="ZoomOut_Click"
-                                ToolTip="축소">−</Button>
+                                ToolTip="축소 (Ctrl+-)">−</Button>
                         <TextBlock x:Name="ZoomText"
                                    Text="100%"
                                    Foreground="{StaticResource MutedInkBrush}"
@@ -665,13 +665,13 @@
                                    VerticalAlignment="Center" />
                         <Button Style="{StaticResource IconButton}"
                                 Click="ZoomIn_Click"
-                                ToolTip="확대">+</Button>
+                                ToolTip="확대 (Ctrl++)">+</Button>
                         <Button Click="ZoomActual_Click"
                                 Margin="8,0,0,0"
-                                ToolTip="100%">100%</Button>
+                                ToolTip="100% (Ctrl+1)">100%</Button>
                         <Button Click="ZoomFit_Click"
                                 Margin="6,0,0,0"
-                                ToolTip="화면에 맞춤">맞춤</Button>
+                                ToolTip="화면에 맞춤 (Ctrl+0 / F)">맞춤</Button>
                     </StackPanel>
                     <TextBlock x:Name="ImageInfoText"
                                Grid.Column="3"
@@ -1068,24 +1068,24 @@
                                 <Slider x:Name="DodgeBurnStrengthSlider" Minimum="5" Maximum="100" Value="36" />
 
                                 <UniformGrid Columns="2" Margin="0,8,0,0">
-                                    <Button x:Name="EraserButton" Click="Eraser_Click" Margin="0,0,6,8">지우개</Button>
-                                    <Button x:Name="RestoreButton" Click="Restore_Click" Margin="6,0,0,8">복원</Button>
+                                    <Button x:Name="EraserButton" Click="Eraser_Click" Margin="0,0,6,8" ToolTip="지우개 브러시 (E)">지우개</Button>
+                                    <Button x:Name="RestoreButton" Click="Restore_Click" Margin="6,0,0,8" ToolTip="복원 브러시 (R / B)">복원</Button>
                                     <Button x:Name="AutoRestoreButton"
                                             Click="AutoRestore_Click"
                                             Margin="0,0,6,0"
-                                            ToolTip="주변 전경과 비슷한 원본 픽셀만 자동으로 되살립니다.">자동 복원</Button>
+                                            ToolTip="주변 전경과 비슷한 원본 픽셀만 자동으로 되살립니다. (A)">자동 복원</Button>
                                     <Button x:Name="CloneStampButton"
                                             Click="CloneStamp_Click"
                                             Margin="6,0,0,8"
-                                            ToolTip="Alt+클릭으로 원본 위치를 찍고 드래그하면 복제합니다.">복제 도장</Button>
+                                            ToolTip="복제 도장 (S). Alt+클릭으로 원본 위치를 찍고 드래그하면 복제합니다.">복제 도장</Button>
                                     <Button x:Name="DodgeButton"
                                             Click="Dodge_Click"
                                             Margin="0,0,6,0"
-                                            ToolTip="브러시로 밝은 부분을 자연스럽게 올립니다.">닷지</Button>
+                                            ToolTip="브러시로 밝은 부분을 자연스럽게 올립니다. (O)">닷지</Button>
                                     <Button x:Name="BurnButton"
                                             Click="Burn_Click"
                                             Margin="6,0,0,0"
-                                            ToolTip="브러시로 어두운 부분을 자연스럽게 눌러줍니다.">번</Button>
+                                            ToolTip="브러시로 어두운 부분을 자연스럽게 눌러줍니다. (Shift+O)">번</Button>
                                 </UniformGrid>
                             </StackPanel>
                         </ScrollViewer>
@@ -1114,8 +1114,8 @@
                                     </Button>
                                 </UniformGrid>
                                 <UniformGrid Columns="2">
-                                    <Button x:Name="CropButton" Click="CropMode_Click" Margin="0,0,6,8">자르기 선택</Button>
-                                    <Button Click="ApplyCrop_Click" Margin="6,0,0,8">자르기 적용</Button>
+                                    <Button x:Name="CropButton" Click="CropMode_Click" Margin="0,0,6,8" ToolTip="자르기 선택 (C)">자르기 선택</Button>
+                                    <Button Click="ApplyCrop_Click" Margin="6,0,0,8" ToolTip="자르기 적용 (Enter)">자르기 적용</Button>
                                 </UniformGrid>
 
                                 <TextBlock Text="선택 영역" Style="{StaticResource SectionTitle}" />
@@ -1152,15 +1152,18 @@
                                 <UniformGrid Columns="2" Margin="0,8,0,8">
                                     <Button x:Name="SelectionButton"
                                             Click="SelectionMode_Click"
-                                            Margin="0,0,6,8">영역 선택</Button>
+                                            Margin="0,0,6,8"
+                                            ToolTip="영역 선택 (M)">영역 선택</Button>
                                     <Button x:Name="LassoButton"
                                             Click="LassoMode_Click"
-                                            Margin="6,0,0,8">올가미</Button>
+                                            Margin="6,0,0,8"
+                                            ToolTip="올가미 선택 (L)">올가미</Button>
                                     <Button x:Name="MagicWandButton"
                                             Click="MagicWandMode_Click"
-                                            Margin="0,0,6,8">마술봉</Button>
-                                    <Button Click="ClearSelection_Click" Margin="6,0,0,8">선택 해제</Button>
-                                    <Button Click="ClearSelectionArea_Click" Margin="0,0,6,8">선택 지우기</Button>
+                                            Margin="0,0,6,8"
+                                            ToolTip="마술봉 선택 (W)">마술봉</Button>
+                                    <Button Click="ClearSelection_Click" Margin="6,0,0,8" ToolTip="선택 해제 (Ctrl+D)">선택 해제</Button>
+                                    <Button Click="ClearSelectionArea_Click" Margin="0,0,6,8" ToolTip="선택 영역 지우기 (Delete)">선택 지우기</Button>
                                     <Button Click="KeepSelectionArea_Click" Margin="6,0,0,8">선택만 남기기</Button>
                                     <Button Click="ExtractSelectionLayer_Click" Margin="0,0,6,0">새 레이어로</Button>
                                     <Button Click="SelectionToMask_Click" Margin="6,0,0,0">마스크로</Button>
@@ -1348,18 +1351,18 @@
                                         <Button Style="{StaticResource IconButton}"
                                                 Click="AddBlankLayer_Click"
                                                 Margin="0,0,6,0"
-                                                ToolTip="빈 레이어 추가">
+                                                ToolTip="빈 레이어 추가 (Ctrl+Shift+N)">
                                             <TextBlock Text="&#xE710;" Style="{StaticResource IconOnlyGlyph}" />
                                         </Button>
                                         <Button Style="{StaticResource IconButton}"
                                                 Click="DuplicateLayer_Click"
                                                 Margin="0,0,6,0"
-                                                ToolTip="선택 레이어 복제">
+                                                ToolTip="선택 레이어 복제 (Ctrl+J)">
                                             <TextBlock Text="&#xE8C8;" Style="{StaticResource IconOnlyGlyph}" />
                                         </Button>
                                         <Button Style="{StaticResource IconButton}"
                                                 Click="DeleteLayer_Click"
-                                                ToolTip="선택 레이어 삭제">
+                                                ToolTip="선택 레이어 삭제 (Delete)">
                                             <TextBlock Text="&#xE74D;" Style="{StaticResource IconOnlyGlyph}" />
                                         </Button>
                                     </StackPanel>
@@ -1474,7 +1477,8 @@
                                 <UniformGrid Columns="3" Margin="0,0,0,8">
                                     <Button x:Name="MoveLayerButton"
                                             Click="MoveLayerMode_Click"
-                                            Margin="0,0,6,8">이동</Button>
+                                            Margin="0,0,6,8"
+                                            ToolTip="레이어 이동 (V). 방향키로 1px, Shift+방향키로 10px 이동">이동</Button>
                                     <Button Click="ResetLayerPosition_Click"
                                             Margin="3,0,3,8">원점</Button>
                                     <Button Click="CenterLayer_Click"

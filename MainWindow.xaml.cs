@@ -157,26 +157,63 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!IsTextInputFocused() && e.Key == Key.W)
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        bool ctrl = modifiers.HasFlag(ModifierKeys.Control);
+        bool shift = modifiers.HasFlag(ModifierKeys.Shift);
+        bool alt = modifiers.HasFlag(ModifierKeys.Alt);
+        bool textInputFocused = IsTextInputFocused();
+
+        if (ctrl && !alt && HandleCommandShortcut(sender, e, shift))
         {
-            MagicWandMode_Click(sender, e);
             e.Handled = true;
             return;
         }
 
-        if (!IsTextInputFocused() && e.Key == Key.L)
+        if (textInputFocused || alt)
         {
-            LassoMode_Click(sender, e);
+            return;
+        }
+
+        if (HandleToolShortcut(sender, e, shift))
+        {
             e.Handled = true;
             return;
         }
 
-        if (!_moveLayerMode || IsTextInputFocused())
+        if (e.Key == Key.Delete && TryGetSelection(out _))
+        {
+            ClearSelectionArea_Click(sender, e);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Delete && LayerList.IsKeyboardFocusWithin)
+        {
+            DeleteLayer_Click(sender, e);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Delete && JobList.IsKeyboardFocusWithin)
+        {
+            RemoveSelected_Click(sender, e);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Enter && _cropMode)
+        {
+            ApplyCrop_Click(sender, e);
+            e.Handled = true;
+            return;
+        }
+
+        if (!_moveLayerMode)
         {
             return;
         }
 
-        int step = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 10 : 1;
+        int step = shift ? 10 : 1;
         bool handled = e.Key switch
         {
             Key.Left => NudgeActiveLayer(-step, 0, recordUndo: true),
@@ -189,6 +226,114 @@ public partial class MainWindow : Window
         if (handled)
         {
             e.Handled = true;
+        }
+    }
+
+    private bool HandleCommandShortcut(object sender, KeyEventArgs e, bool shift)
+    {
+        switch (e.Key)
+        {
+            case Key.O when shift:
+                RevealLastOutput_Click(sender, e);
+                return true;
+            case Key.O:
+                OpenImages_Click(sender, e);
+                return true;
+            case Key.S:
+                SaveCurrent_Click(sender, e);
+                return true;
+            case Key.Enter when shift:
+                RunQueue_Click(sender, e);
+                return true;
+            case Key.Enter:
+                RunSelected_Click(sender, e);
+                return true;
+            case Key.Z when shift:
+                Redo_Click(sender, e);
+                return true;
+            case Key.Z:
+                Undo_Click(sender, e);
+                return true;
+            case Key.Y:
+                Redo_Click(sender, e);
+                return true;
+            case Key.D:
+                ClearSelection_Click(sender, e);
+                return true;
+            case Key.J:
+                DuplicateLayer_Click(sender, e);
+                return true;
+            case Key.N when shift:
+                AddBlankLayer_Click(sender, e);
+                return true;
+            case Key.D0:
+            case Key.NumPad0:
+                ZoomFit_Click(sender, e);
+                return true;
+            case Key.D1:
+            case Key.NumPad1:
+                ZoomActual_Click(sender, e);
+                return true;
+            case Key.Add:
+            case Key.OemPlus:
+                ZoomIn_Click(sender, e);
+                return true;
+            case Key.Subtract:
+            case Key.OemMinus:
+                ZoomOut_Click(sender, e);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private bool HandleToolShortcut(object sender, KeyEventArgs e, bool shift)
+    {
+        switch (e.Key)
+        {
+            case Key.M:
+                SelectionMode_Click(sender, e);
+                return true;
+            case Key.L:
+                LassoMode_Click(sender, e);
+                return true;
+            case Key.W:
+                MagicWandMode_Click(sender, e);
+                return true;
+            case Key.C:
+                CropMode_Click(sender, e);
+                return true;
+            case Key.V:
+                MoveLayerMode_Click(sender, e);
+                return true;
+            case Key.E:
+                Eraser_Click(sender, e);
+                return true;
+            case Key.R:
+            case Key.B:
+                Restore_Click(sender, e);
+                return true;
+            case Key.A:
+                AutoRestore_Click(sender, e);
+                return true;
+            case Key.S:
+                CloneStamp_Click(sender, e);
+                return true;
+            case Key.O when shift:
+                Burn_Click(sender, e);
+                return true;
+            case Key.O:
+                Dodge_Click(sender, e);
+                return true;
+            case Key.F:
+                ZoomFit_Click(sender, e);
+                return true;
+            case Key.D1:
+            case Key.NumPad1:
+                ZoomActual_Click(sender, e);
+                return true;
+            default:
+                return false;
         }
     }
 
