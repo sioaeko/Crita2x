@@ -960,6 +960,38 @@ public partial class MainWindow : Window
         SetStatus("선택 레이어를 삭제했습니다.");
     }
 
+    private void BringLayerToTop_Click(object sender, RoutedEventArgs e)
+    {
+        MoveActiveLayerToIndex(_layers.Count - 1, "레이어 맨 위로 이동", "선택 레이어를 맨 위로 가져왔습니다.");
+    }
+
+    private void BringLayerForward_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("순서를 바꿀 레이어가 없습니다.");
+            return;
+        }
+
+        MoveActiveLayerToIndex(_layers.IndexOf(activeLayer) + 1, "레이어 앞으로 이동", "선택 레이어를 한 단계 앞으로 가져왔습니다.");
+    }
+
+    private void SendLayerBackward_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("순서를 바꿀 레이어가 없습니다.");
+            return;
+        }
+
+        MoveActiveLayerToIndex(_layers.IndexOf(activeLayer) - 1, "레이어 뒤로 이동", "선택 레이어를 한 단계 뒤로 보냈습니다.");
+    }
+
+    private void SendLayerToBottom_Click(object sender, RoutedEventArgs e)
+    {
+        MoveActiveLayerToIndex(0, "레이어 맨 아래로 이동", "선택 레이어를 맨 아래로 보냈습니다.");
+    }
+
     private void MergeVisibleLayers_Click(object sender, RoutedEventArgs e)
     {
         if (!EnsureBitmap() || _layers.Count == 0)
@@ -1806,6 +1838,55 @@ public partial class MainWindow : Window
         SelectionRect.Visibility = Visibility.Visible;
     }
 
+    private void UpdateActiveLayerBounds()
+    {
+        if (_currentBitmap is null || GetActiveLayer() is not ImageLayer activeLayer || !activeLayer.IsVisible)
+        {
+            HideActiveLayerBounds();
+            return;
+        }
+
+        double x = activeLayer.OffsetX;
+        double y = activeLayer.OffsetY;
+        double width = activeLayer.Bitmap.PixelWidth;
+        double height = activeLayer.Bitmap.PixelHeight;
+        if (width <= 0 || height <= 0)
+        {
+            HideActiveLayerBounds();
+            return;
+        }
+
+        ActiveLayerBounds.Width = width;
+        ActiveLayerBounds.Height = height;
+        Canvas.SetLeft(ActiveLayerBounds, x);
+        Canvas.SetTop(ActiveLayerBounds, y);
+        PositionLayerHandle(ActiveLayerHandleTopLeft, x, y);
+        PositionLayerHandle(ActiveLayerHandleTopRight, x + width, y);
+        PositionLayerHandle(ActiveLayerHandleBottomLeft, x, y + height);
+        PositionLayerHandle(ActiveLayerHandleBottomRight, x + width, y + height);
+
+        ActiveLayerBounds.Visibility = Visibility.Visible;
+        ActiveLayerHandleTopLeft.Visibility = Visibility.Visible;
+        ActiveLayerHandleTopRight.Visibility = Visibility.Visible;
+        ActiveLayerHandleBottomLeft.Visibility = Visibility.Visible;
+        ActiveLayerHandleBottomRight.Visibility = Visibility.Visible;
+    }
+
+    private void HideActiveLayerBounds()
+    {
+        ActiveLayerBounds.Visibility = Visibility.Collapsed;
+        ActiveLayerHandleTopLeft.Visibility = Visibility.Collapsed;
+        ActiveLayerHandleTopRight.Visibility = Visibility.Collapsed;
+        ActiveLayerHandleBottomLeft.Visibility = Visibility.Collapsed;
+        ActiveLayerHandleBottomRight.Visibility = Visibility.Collapsed;
+    }
+
+    private static void PositionLayerHandle(System.Windows.Shapes.Rectangle handle, double x, double y)
+    {
+        Canvas.SetLeft(handle, x - (handle.Width / 2));
+        Canvas.SetTop(handle, y - (handle.Height / 2));
+    }
+
     private void ClearSelectionOverlay(bool disableMode)
     {
         _selectionRect = null;
@@ -1840,6 +1921,35 @@ public partial class MainWindow : Window
         }
 
         SetLayerOffset(activeLayer, offsetX, offsetY);
+    }
+
+    private void MoveActiveLayerToIndex(int targetIndex, string historyLabel, string status)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("순서를 바꿀 레이어가 없습니다.");
+            return;
+        }
+
+        if (_layers.Count <= 1)
+        {
+            SetStatus("순서를 바꿀 다른 레이어가 없습니다.");
+            return;
+        }
+
+        int currentIndex = _layers.IndexOf(activeLayer);
+        targetIndex = Math.Clamp(targetIndex, 0, _layers.Count - 1);
+        if (currentIndex < 0 || currentIndex == targetIndex)
+        {
+            return;
+        }
+
+        PushUndo();
+        _layers.Move(currentIndex, targetIndex);
+        SelectLayer(activeLayer);
+        RefreshCompositeFromLayers();
+        RecordHistory(historyLabel);
+        SetStatus(status);
     }
 
     private void AddImages(IEnumerable<string> paths)
@@ -2187,6 +2297,7 @@ public partial class MainWindow : Window
         {
             _selectionRect = null;
             SelectionRect.Visibility = Visibility.Collapsed;
+            HideActiveLayerBounds();
             ImageHost.Width = double.NaN;
             ImageHost.Height = double.NaN;
             OverlayCanvas.Width = 0;
@@ -2211,6 +2322,7 @@ public partial class MainWindow : Window
         ApplyZoom();
         UpdateCompareView();
         UpdateSelectionOverlay();
+        UpdateActiveLayerBounds();
     }
 
     private void UpdateCompareView()
@@ -2585,6 +2697,8 @@ public partial class MainWindow : Window
         {
             _suppressLayerControlUpdate = false;
         }
+
+        UpdateActiveLayerBounds();
     }
 
     private void ClearCurrentImage()

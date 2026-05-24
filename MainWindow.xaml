@@ -433,6 +433,32 @@
                                 </Canvas>
                                 <Canvas x:Name="OverlayCanvas"
                                         IsHitTestVisible="False">
+                                    <Rectangle x:Name="ActiveLayerBounds"
+                                               Visibility="Collapsed"
+                                               Stroke="{StaticResource InkBrush}"
+                                               StrokeThickness="1.5"
+                                               StrokeDashArray="6 3"
+                                               Fill="Transparent" />
+                                    <Rectangle x:Name="ActiveLayerHandleTopLeft"
+                                               Visibility="Collapsed"
+                                               Width="8"
+                                               Height="8"
+                                               Fill="{StaticResource AccentBrush}" />
+                                    <Rectangle x:Name="ActiveLayerHandleTopRight"
+                                               Visibility="Collapsed"
+                                               Width="8"
+                                               Height="8"
+                                               Fill="{StaticResource AccentBrush}" />
+                                    <Rectangle x:Name="ActiveLayerHandleBottomLeft"
+                                               Visibility="Collapsed"
+                                               Width="8"
+                                               Height="8"
+                                               Fill="{StaticResource AccentBrush}" />
+                                    <Rectangle x:Name="ActiveLayerHandleBottomRight"
+                                               Visibility="Collapsed"
+                                               Width="8"
+                                               Height="8"
+                                               Fill="{StaticResource AccentBrush}" />
                                     <Rectangle x:Name="CropRect"
                                                Visibility="Collapsed"
                                                Stroke="{StaticResource AccentBrush}"
@@ -1086,6 +1112,22 @@
                                 <Button Click="NudgeLayer_Click"
                                         Tag="down"
                                         Margin="0,0,0,8">↓</Button>
+
+                                <TextBlock Text="순서" Style="{StaticResource ToolLabel}" Margin="0,4,0,4" />
+                                <UniformGrid Columns="4" Margin="0,0,0,8">
+                                    <Button Click="SendLayerToBottom_Click"
+                                            Margin="0,0,4,0"
+                                            ToolTip="선택 레이어를 맨 아래로 보내기">⇩</Button>
+                                    <Button Click="SendLayerBackward_Click"
+                                            Margin="4,0,4,0"
+                                            ToolTip="선택 레이어를 한 단계 뒤로 보내기">↓</Button>
+                                    <Button Click="BringLayerForward_Click"
+                                            Margin="4,0,4,0"
+                                            ToolTip="선택 레이어를 한 단계 앞으로 가져오기">↑</Button>
+                                    <Button Click="BringLayerToTop_Click"
+                                            Margin="4,0,0,0"
+                                            ToolTip="선택 레이어를 맨 위로 가져오기">⇧</Button>
+                                </UniformGrid>
 
                                 <Button Click="MergeVisibleLayers_Click"
                                         Margin="0,6,0,0">보이는 레이어 병합</Button>
