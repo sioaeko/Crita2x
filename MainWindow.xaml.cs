@@ -1280,6 +1280,79 @@ public partial class MainWindow : Window
         };
     }
 
+    private void ApplyLayerSize_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("크기를 바꿀 레이어가 없습니다.");
+            return;
+        }
+
+        int currentWidth = activeLayer.Bitmap.PixelWidth;
+        int currentHeight = activeLayer.Bitmap.PixelHeight;
+        bool widthOk = int.TryParse(LayerWidthBox.Text, out int width) && width > 0;
+        bool heightOk = int.TryParse(LayerHeightBox.Text, out int height) && height > 0;
+        if (!widthOk && !heightOk)
+        {
+            SetStatus("레이어 너비나 높이를 입력하세요.");
+            return;
+        }
+
+        width = widthOk ? width : currentWidth;
+        height = heightOk ? height : currentHeight;
+        if (LayerAspectLockBox.IsChecked == true)
+        {
+            double ratio = currentHeight / (double)Math.Max(1, currentWidth);
+            if (widthOk)
+            {
+                height = Math.Max(1, (int)Math.Round(width * ratio));
+            }
+            else if (heightOk)
+            {
+                width = Math.Max(1, (int)Math.Round(height / ratio));
+            }
+        }
+
+        width = Math.Clamp(width, 1, 32768);
+        height = Math.Clamp(height, 1, 32768);
+        if (width == currentWidth && height == currentHeight)
+        {
+            return;
+        }
+
+        ResizeActiveLayer(activeLayer, width, height, centerOnCanvas: false, "레이어 크기 변경", $"레이어 크기: {width} x {height}");
+    }
+
+    private void FitLayerToCanvas_Click(object sender, RoutedEventArgs e)
+    {
+        ResizeLayerToCanvas(fill: false);
+    }
+
+    private void FillLayerToCanvas_Click(object sender, RoutedEventArgs e)
+    {
+        ResizeLayerToCanvas(fill: true);
+    }
+
+    private void RotateLayerLeft_Click(object sender, RoutedEventArgs e)
+    {
+        TransformActiveLayer(bitmap => BitmapEditor.Rotate(bitmap, -90), "레이어 왼쪽 회전", "선택 레이어를 왼쪽으로 회전했습니다.", keepCenter: true);
+    }
+
+    private void RotateLayerRight_Click(object sender, RoutedEventArgs e)
+    {
+        TransformActiveLayer(bitmap => BitmapEditor.Rotate(bitmap, 90), "레이어 오른쪽 회전", "선택 레이어를 오른쪽으로 회전했습니다.", keepCenter: true);
+    }
+
+    private void FlipLayerHorizontal_Click(object sender, RoutedEventArgs e)
+    {
+        TransformActiveLayer(BitmapEditor.FlipHorizontal, "레이어 좌우 반전", "선택 레이어를 좌우 반전했습니다.", keepCenter: false);
+    }
+
+    private void FlipLayerVertical_Click(object sender, RoutedEventArgs e)
+    {
+        TransformActiveLayer(BitmapEditor.FlipVertical, "레이어 상하 반전", "선택 레이어를 상하 반전했습니다.", keepCenter: false);
+    }
+
     private void LayerBlendModeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_suppressLayerControlUpdate || GetActiveLayer() is not ImageLayer activeLayer)
@@ -2534,6 +2607,104 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ResizeLayerToCanvas(bool fill)
+    {
+        if (_currentBitmap is null || GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("크기를 맞출 레이어가 없습니다.");
+            return;
+        }
+
+        double scaleX = _currentBitmap.PixelWidth / (double)Math.Max(1, activeLayer.Bitmap.PixelWidth);
+        double scaleY = _currentBitmap.PixelHeight / (double)Math.Max(1, activeLayer.Bitmap.PixelHeight);
+        double scale = fill ? Math.Max(scaleX, scaleY) : Math.Min(scaleX, scaleY);
+        int width = Math.Max(1, (int)Math.Round(activeLayer.Bitmap.PixelWidth * scale));
+        int height = Math.Max(1, (int)Math.Round(activeLayer.Bitmap.PixelHeight * scale));
+        ResizeActiveLayer(
+            activeLayer,
+            width,
+            height,
+            centerOnCanvas: true,
+            fill ? "레이어 캔버스 채우기" : "레이어 캔버스 맞춤",
+            fill ? "선택 레이어를 캔버스에 채웠습니다." : "선택 레이어를 캔버스에 맞췄습니다.");
+    }
+
+    private void ResizeActiveLayer(
+        ImageLayer activeLayer,
+        int width,
+        int height,
+        bool centerOnCanvas,
+        string historyLabel,
+        string status)
+    {
+        width = Math.Clamp(width, 1, 32768);
+        height = Math.Clamp(height, 1, 32768);
+        PushUndo();
+        _suppressLayerRefresh = true;
+        try
+        {
+            activeLayer.Bitmap = BitmapEditor.Resize(activeLayer.Bitmap, width, height);
+            if (activeLayer.Mask is not null)
+            {
+                activeLayer.Mask = BitmapEditor.Resize(activeLayer.Mask, width, height);
+            }
+
+            if (centerOnCanvas && _currentBitmap is not null)
+            {
+                activeLayer.OffsetX = (int)Math.Round((_currentBitmap.PixelWidth - width) / 2.0);
+                activeLayer.OffsetY = (int)Math.Round((_currentBitmap.PixelHeight - height) / 2.0);
+            }
+        }
+        finally
+        {
+            _suppressLayerRefresh = false;
+        }
+
+        RefreshCompositeFromLayers();
+        RecordHistory(historyLabel);
+        SetStatus(status);
+    }
+
+    private void TransformActiveLayer(
+        Func<BitmapSource, BitmapSource> transform,
+        string historyLabel,
+        string status,
+        bool keepCenter)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("변형할 레이어가 없습니다.");
+            return;
+        }
+
+        double centerX = activeLayer.OffsetX + (activeLayer.Bitmap.PixelWidth / 2.0);
+        double centerY = activeLayer.OffsetY + (activeLayer.Bitmap.PixelHeight / 2.0);
+        PushUndo();
+        _suppressLayerRefresh = true;
+        try
+        {
+            activeLayer.Bitmap = transform(activeLayer.Bitmap);
+            if (activeLayer.Mask is not null)
+            {
+                activeLayer.Mask = transform(activeLayer.Mask);
+            }
+
+            if (keepCenter)
+            {
+                activeLayer.OffsetX = (int)Math.Round(centerX - (activeLayer.Bitmap.PixelWidth / 2.0));
+                activeLayer.OffsetY = (int)Math.Round(centerY - (activeLayer.Bitmap.PixelHeight / 2.0));
+            }
+        }
+        finally
+        {
+            _suppressLayerRefresh = false;
+        }
+
+        RefreshCompositeFromLayers();
+        RecordHistory(historyLabel);
+        SetStatus(status);
+    }
+
     private void TransformAllLayers(
         Func<BitmapSource, BitmapSource> transform,
         Func<ImageLayer, (int OffsetX, int OffsetY)>? transformOffset = null,
@@ -2688,6 +2859,10 @@ public partial class MainWindow : Window
             LayerNameBox.Text = activeLayer?.Name ?? "";
             LayerBlendModeBox.IsEnabled = activeLayer is not null;
             SetComboByTag(LayerBlendModeBox, activeLayer?.BlendMode.ToString() ?? nameof(ImageBlendMode.Normal));
+            LayerWidthBox.IsEnabled = activeLayer is not null;
+            LayerHeightBox.IsEnabled = activeLayer is not null;
+            LayerWidthBox.Text = activeLayer?.Bitmap.PixelWidth.ToString() ?? "";
+            LayerHeightBox.Text = activeLayer?.Bitmap.PixelHeight.ToString() ?? "";
             LayerOffsetXBox.IsEnabled = activeLayer is not null;
             LayerOffsetYBox.IsEnabled = activeLayer is not null;
             LayerOffsetXBox.Text = activeLayer?.OffsetX.ToString() ?? "";

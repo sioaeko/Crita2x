@@ -1072,6 +1072,38 @@
                                         PreviewMouseLeftButtonDown="LayerOpacitySlider_MouseDown"
                                         PreviewMouseLeftButtonUp="LayerOpacitySlider_MouseUp" />
 
+                                <TextBlock Text="변형" Style="{StaticResource SectionTitle}" />
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="72" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="LayerWidthBox"
+                                             IsEnabled="False"
+                                             Margin="0,0,6,0"
+                                             ToolTip="레이어 너비" />
+                                    <TextBox x:Name="LayerHeightBox"
+                                             Grid.Column="1"
+                                             IsEnabled="False"
+                                             Margin="6,0,6,0"
+                                             ToolTip="레이어 높이" />
+                                    <Button Grid.Column="2"
+                                            Click="ApplyLayerSize_Click">적용</Button>
+                                </Grid>
+                                <CheckBox x:Name="LayerAspectLockBox"
+                                          Content="비율 고정"
+                                          IsChecked="True"
+                                          Margin="0,0,0,8" />
+                                <UniformGrid Columns="2" Margin="0,0,0,8">
+                                    <Button Click="FitLayerToCanvas_Click" Margin="0,0,6,8">맞춤</Button>
+                                    <Button Click="FillLayerToCanvas_Click" Margin="6,0,0,8">채우기</Button>
+                                    <Button Click="RotateLayerLeft_Click" Margin="0,0,6,8">↺</Button>
+                                    <Button Click="RotateLayerRight_Click" Margin="6,0,0,8">↻</Button>
+                                    <Button Click="FlipLayerHorizontal_Click" Margin="0,0,6,0">좌우</Button>
+                                    <Button Click="FlipLayerVertical_Click" Margin="6,0,0,0">상하</Button>
+                                </UniformGrid>
+
                                 <TextBlock Text="위치" Style="{StaticResource SectionTitle}" />
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
