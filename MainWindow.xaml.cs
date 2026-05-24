@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private BitmapSource? _restoreSourceBitmap;
     private BitmapSource? _compareBaselineBitmap;
     private string? _currentPath;
+    private string? _lastOutputPath;
     private CancellationTokenSource? _queueCancellation;
 
     private bool _cropMode;
@@ -46,6 +47,8 @@ public partial class MainWindow : Window
     private bool _eraseMode;
     private bool _restoreMode;
     private bool _autoRestoreMode;
+    private bool _maskHideMode;
+    private bool _maskRevealMode;
     private bool _brushHistoryCaptured;
     private bool _isPanning;
     private Point _panStart;
@@ -149,6 +152,7 @@ public partial class MainWindow : Window
         await LoadGpuChoicesAsync();
         UpdateQueueText();
         UpdatePreview(null, null);
+        UpdateLastOutputActions();
         SetStatus(string.IsNullOrWhiteSpace(EnginePathBox.Text)
             ? "Waifu2x 엔진 경로를 선택하면 업스케일을 실행할 수 있습니다."
             : "준비됨");
@@ -336,6 +340,7 @@ public partial class MainWindow : Window
             LoadImage(outputPath);
         }
 
+        SetLastOutputPath(outputPath);
         SetStatus($"완료 이미지 열기: {Path.GetFileName(outputPath)}");
     }
 
@@ -345,6 +350,32 @@ public partial class MainWindow : Window
         if (!TryGetJobFromSender(sender, out BatchJob job) || !TryGetOutputPath(job, out string outputPath))
         {
             SetStatus("탐색기에서 열 완료 파일이 없습니다.");
+            return;
+        }
+
+        RevealFileInExplorer(outputPath);
+        SetLastOutputPath(outputPath);
+        SetStatus($"탐색기에서 표시: {Path.GetFileName(outputPath)}");
+    }
+
+    private void OpenLastOutput_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetLastOutputPath(out string outputPath))
+        {
+            SetStatus("열 수 있는 최근 완료 이미지가 없습니다.");
+            return;
+        }
+
+        SelectJobByOutput(outputPath);
+        LoadImage(outputPath);
+        SetStatus($"최근 완료 이미지 열기: {Path.GetFileName(outputPath)}");
+    }
+
+    private void RevealLastOutput_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetLastOutputPath(out string outputPath))
+        {
+            SetStatus("탐색기에서 열 최근 완료 파일이 없습니다.");
             return;
         }
 
@@ -375,6 +406,8 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
         UpdateBrushButtons();
         SetStatus("캔버스에서 제거할 색상을 클릭하세요.");
     }
@@ -447,6 +480,8 @@ public partial class MainWindow : Window
         _eraseMode = !_eraseMode;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
         _pickChroma = false;
         UpdateBrushState();
     }
@@ -456,6 +491,8 @@ public partial class MainWindow : Window
         _restoreMode = !_restoreMode;
         _eraseMode = false;
         _autoRestoreMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
         _pickChroma = false;
         UpdateBrushState();
     }
@@ -470,6 +507,8 @@ public partial class MainWindow : Window
         _autoRestoreMode = !_autoRestoreMode;
         _eraseMode = false;
         _restoreMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
         _pickChroma = false;
 
         if (_autoRestoreMode && !CanUseAutoRestoreBrush())
@@ -509,6 +548,8 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
         _pickChroma = false;
         CropButton.Background = _cropMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         UpdateBrushButtons();
@@ -642,6 +683,7 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) == true)
         {
             BitmapEditor.Save(_currentBitmap!, dialog.FileName);
+            SetLastOutputPath(dialog.FileName);
             SetStatus($"저장 완료: {dialog.FileName}");
         }
     }
@@ -680,6 +722,7 @@ public partial class MainWindow : Window
         PushUndo();
         var layer = new ImageLayer($"{activeLayer.Name} 복사", activeLayer.Bitmap)
         {
+            Mask = activeLayer.Mask,
             IsVisible = activeLayer.IsVisible,
             Opacity = activeLayer.Opacity,
             BlendMode = activeLayer.BlendMode
@@ -731,6 +774,83 @@ public partial class MainWindow : Window
         UpdatePreview(_currentBitmap, _currentPath);
         RecordHistory("레이어 병합");
         SetStatus("보이는 레이어를 병합했습니다.");
+    }
+
+    private void AddLayerMask_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("마스크를 추가할 레이어가 없습니다.");
+            return;
+        }
+
+        PushUndo();
+        SetLayerMask(activeLayer, BitmapEditor.CreateMask(activeLayer.Bitmap.PixelWidth, activeLayer.Bitmap.PixelHeight, 255, activeLayer.Bitmap.DpiX, activeLayer.Bitmap.DpiY));
+        RefreshCompositeFromLayers();
+        RecordHistory("레이어 마스크 추가");
+        SetStatus("선택 레이어에 흰색 마스크를 추가했습니다.");
+    }
+
+    private void RemoveLayerMask_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer || activeLayer.Mask is null)
+        {
+            SetStatus("삭제할 레이어 마스크가 없습니다.");
+            return;
+        }
+
+        PushUndo();
+        SetLayerMask(activeLayer, null);
+        RefreshCompositeFromLayers();
+        RecordHistory("레이어 마스크 삭제");
+        SetStatus("선택 레이어의 마스크를 삭제했습니다.");
+    }
+
+    private void InvertLayerMask_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer || activeLayer.Mask is null)
+        {
+            SetStatus("반전할 레이어 마스크가 없습니다.");
+            return;
+        }
+
+        PushUndo();
+        SetLayerMask(activeLayer, BitmapEditor.InvertMask(activeLayer.Mask));
+        RefreshCompositeFromLayers();
+        RecordHistory("레이어 마스크 반전");
+        SetStatus("선택 레이어의 마스크를 반전했습니다.");
+    }
+
+    private void MaskHideBrush_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureMaskBrush())
+        {
+            return;
+        }
+
+        _maskHideMode = !_maskHideMode;
+        _maskRevealMode = false;
+        _eraseMode = false;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        _pickChroma = false;
+        UpdateBrushState();
+    }
+
+    private void MaskRevealBrush_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureMaskBrush())
+        {
+            return;
+        }
+
+        _maskRevealMode = !_maskRevealMode;
+        _maskHideMode = false;
+        _eraseMode = false;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        _pickChroma = false;
+        UpdateBrushState();
     }
 
     private void LayerList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -976,6 +1096,53 @@ public partial class MainWindow : Window
         return !string.IsNullOrWhiteSpace(outputPath) && File.Exists(outputPath);
     }
 
+    private bool TryGetLastOutputPath(out string outputPath)
+    {
+        outputPath = _lastOutputPath ?? "";
+        if (!string.IsNullOrWhiteSpace(outputPath) && File.Exists(outputPath))
+        {
+            return true;
+        }
+
+        SetLastOutputPath(null);
+        return false;
+    }
+
+    private void SetLastOutputPath(string? path)
+    {
+        _lastOutputPath = !string.IsNullOrWhiteSpace(path) && File.Exists(path)
+            ? path
+            : null;
+        UpdateLastOutputActions();
+    }
+
+    private void UpdateLastOutputActions()
+    {
+        bool hasOutput = !string.IsNullOrWhiteSpace(_lastOutputPath) && File.Exists(_lastOutputPath);
+        if (!hasOutput)
+        {
+            _lastOutputPath = null;
+        }
+
+        OpenLastOutputButton.IsEnabled = hasOutput;
+        RevealLastOutputButton.IsEnabled = hasOutput;
+        LastOutputNameText.Text = hasOutput
+            ? Path.GetFileName(_lastOutputPath!)
+            : "완료 결과 없음";
+    }
+
+    private void SelectJobByOutput(string outputPath)
+    {
+        BatchJob? job = _jobs.FirstOrDefault(job =>
+            job.OutputPath is string path
+            && string.Equals(Path.GetFullPath(path), Path.GetFullPath(outputPath), StringComparison.OrdinalIgnoreCase));
+        if (job is not null && !ReferenceEquals(JobList.SelectedItem, job))
+        {
+            JobList.SelectedItem = job;
+            JobList.ScrollIntoView(job);
+        }
+    }
+
     private void Preview_MouseWheel(object sender, MouseWheelEventArgs e)
     {
         if (_currentBitmap is null || !Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
@@ -1127,7 +1294,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_eraseMode || _restoreMode || _autoRestoreMode)
+        if (IsBrushModeActive())
         {
             Mouse.Capture(ImageHost);
             ApplyBrush(imagePoint);
@@ -1175,7 +1342,7 @@ public partial class MainWindow : Window
             CropRect.Width = Math.Max(1, width);
             CropRect.Height = Math.Max(1, height);
         }
-        else if ((_eraseMode || _restoreMode || _autoRestoreMode) && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
+        else if (IsBrushModeActive() && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
         {
             ApplyBrush(imagePoint);
         }
@@ -1282,6 +1449,7 @@ public partial class MainWindow : Window
                         _queueCancellation.Token);
 
                     job.OutputPath = outputPath;
+                    SetLastOutputPath(outputPath);
                     job.Progress = 100;
                     job.Status = "완료";
                     job.IsRunning = false;
@@ -1649,7 +1817,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.PropertyName is nameof(ImageLayer.IsVisible) or nameof(ImageLayer.Opacity) or nameof(ImageLayer.Bitmap) or nameof(ImageLayer.BlendMode))
+        if (e.PropertyName is nameof(ImageLayer.IsVisible) or nameof(ImageLayer.Opacity) or nameof(ImageLayer.Bitmap) or nameof(ImageLayer.BlendMode) or nameof(ImageLayer.Mask))
         {
             RefreshCompositeFromLayers();
             UpdateLayerControls();
@@ -1680,6 +1848,30 @@ public partial class MainWindow : Window
     private BitmapSource? GetEditableBitmap()
     {
         return GetActiveLayer()?.Bitmap ?? _currentBitmap;
+    }
+
+    private bool EnsureMaskBrush()
+    {
+        if (!EnsureBitmap())
+        {
+            return false;
+        }
+
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("마스크를 칠할 레이어가 없습니다.");
+            return false;
+        }
+
+        if (activeLayer.Mask is null)
+        {
+            PushUndo();
+            SetLayerMask(activeLayer, BitmapEditor.CreateMask(activeLayer.Bitmap.PixelWidth, activeLayer.Bitmap.PixelHeight, 255, activeLayer.Bitmap.DpiX, activeLayer.Bitmap.DpiY));
+            RefreshCompositeFromLayers();
+            RecordHistory("레이어 마스크 추가");
+        }
+
+        return true;
     }
 
     private void SetEditableBitmap(BitmapSource bitmap, bool refreshPreview = true)
@@ -1715,6 +1907,21 @@ public partial class MainWindow : Window
         }
     }
 
+    private void SetLayerMask(ImageLayer layer, BitmapSource? mask)
+    {
+        _suppressLayerRefresh = true;
+        try
+        {
+            layer.Mask = mask;
+        }
+        finally
+        {
+            _suppressLayerRefresh = false;
+        }
+
+        UpdateLayerControls();
+    }
+
     private void TransformAllLayers(Func<BitmapSource, BitmapSource> transform)
     {
         if (_layers.Count == 0)
@@ -1734,6 +1941,10 @@ public partial class MainWindow : Window
             foreach (ImageLayer layer in _layers)
             {
                 layer.Bitmap = transform(layer.Bitmap);
+                if (layer.Mask is not null)
+                {
+                    layer.Mask = transform(layer.Mask);
+                }
             }
         }
         finally
@@ -1756,7 +1967,7 @@ public partial class MainWindow : Window
         BitmapSource first = _layers[0].Bitmap;
         var visibleLayers = _layers
             .Where(layer => layer.IsVisible)
-            .Select(layer => (layer.Bitmap, layer.Opacity / 100.0, layer.BlendMode));
+            .Select(layer => (layer.Bitmap, layer.Opacity / 100.0, layer.BlendMode, layer.Mask));
 
         return BitmapEditor.CompositeLayers(visibleLayers, width, height, first.DpiX, first.DpiY);
     }
@@ -1777,7 +1988,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<ImageLayerSnapshot> CaptureLayers()
     {
         return _layers
-            .Select(layer => new ImageLayerSnapshot(layer.Name, layer.Bitmap, layer.IsVisible, layer.Opacity, layer.BlendMode))
+            .Select(layer => new ImageLayerSnapshot(layer.Name, layer.Bitmap, layer.Mask, layer.IsVisible, layer.Opacity, layer.BlendMode))
             .ToArray();
     }
 
@@ -1792,6 +2003,7 @@ public partial class MainWindow : Window
             {
                 AddLayer(new ImageLayer(snapshot.Name, snapshot.Bitmap)
                 {
+                    Mask = snapshot.Mask,
                     IsVisible = snapshot.IsVisible,
                     Opacity = snapshot.Opacity,
                     BlendMode = snapshot.BlendMode
@@ -2020,6 +2232,16 @@ public partial class MainWindow : Window
 
     private string GetBrushHistoryLabel()
     {
+        if (_maskHideMode)
+        {
+            return "마스크 숨김 브러시";
+        }
+
+        if (_maskRevealMode)
+        {
+            return "마스크 복원 브러시";
+        }
+
         if (_autoRestoreMode)
         {
             return "자동 복원 브러시";
@@ -2094,7 +2316,8 @@ public partial class MainWindow : Window
             _brushHistoryCaptured = true;
         }
 
-        int radius = (int)BrushSizeSlider.Value;
+        bool maskBrush = _maskHideMode || _maskRevealMode;
+        int radius = (int)(maskBrush ? MaskBrushSizeSlider.Value : BrushSizeSlider.Value);
         double spacing = Math.Max(2.0, radius * (_autoRestoreMode ? 0.55 : 0.35));
 
         foreach (Point point in GetBrushStrokePoints(_lastBrushPoint, imagePoint, spacing))
@@ -2117,14 +2340,35 @@ public partial class MainWindow : Window
 
     private void ApplyBrushPoint(Point point, int radius)
     {
+        int x = (int)Math.Round(point.X);
+        int y = (int)Math.Round(point.Y);
+
+        if (_maskHideMode || _maskRevealMode)
+        {
+            if (GetActiveLayer() is not ImageLayer activeLayer)
+            {
+                return;
+            }
+
+            BitmapSource mask = activeLayer.Mask
+                ?? BitmapEditor.CreateMask(activeLayer.Bitmap.PixelWidth, activeLayer.Bitmap.PixelHeight, 255, activeLayer.Bitmap.DpiX, activeLayer.Bitmap.DpiY);
+            BitmapSource editedMask = BitmapEditor.ApplyMaskBrush(
+                mask,
+                x,
+                y,
+                radius,
+                reveal: _maskRevealMode,
+                MaskBrushStrengthSlider.Value / 100.0);
+            SetLayerMask(activeLayer, editedMask);
+            return;
+        }
+
         BitmapSource? target = GetEditableBitmap();
         if (target is null)
         {
             return;
         }
 
-        int x = (int)Math.Round(point.X);
-        int y = (int)Math.Round(point.Y);
         BitmapSource edited = _autoRestoreMode
             ? BitmapEditor.ApplyAutoRestoreBrush(
                 target,
@@ -2141,14 +2385,15 @@ public partial class MainWindow : Window
 
     private void UpdateBrushGhost(Point imagePoint)
     {
-        if (!_eraseMode && !_restoreMode && !_autoRestoreMode)
+        if (!IsBrushModeActive())
         {
             BrushGhost.Visibility = Visibility.Collapsed;
             return;
         }
 
-        bool restorativeBrush = _restoreMode || _autoRestoreMode;
-        double size = BrushSizeSlider.Value * 2;
+        bool restorativeBrush = _restoreMode || _autoRestoreMode || _maskRevealMode;
+        bool maskBrush = _maskHideMode || _maskRevealMode;
+        double size = (maskBrush ? MaskBrushSizeSlider.Value : BrushSizeSlider.Value) * 2;
         BrushGhost.Width = size;
         BrushGhost.Height = size;
         BrushGhost.Stroke = restorativeBrush ? FindBrush("AccentBrush") : FindBrush("AccentWarmBrush");
@@ -2187,6 +2432,11 @@ public partial class MainWindow : Window
             && target.PixelHeight == _restoreSourceBitmap.PixelHeight;
     }
 
+    private bool IsBrushModeActive()
+    {
+        return _eraseMode || _restoreMode || _autoRestoreMode || _maskHideMode || _maskRevealMode;
+    }
+
     private bool TryGetImagePoint(Point hostPoint, out Point imagePoint)
     {
         imagePoint = default;
@@ -2214,7 +2464,12 @@ public partial class MainWindow : Window
     private void UpdateBrushState()
     {
         UpdateBrushButtons();
-        SetStatus(_eraseMode ? "지우개 브러시 활성화" : _restoreMode ? "복원 브러시 활성화" : _autoRestoreMode ? "자동 복원 브러시 활성화: 전경으로 판단되는 부분만 복구" : "브러시 해제");
+        SetStatus(_eraseMode ? "지우개 브러시 활성화"
+            : _restoreMode ? "복원 브러시 활성화"
+            : _autoRestoreMode ? "자동 복원 브러시 활성화: 전경으로 판단되는 부분만 복구"
+            : _maskHideMode ? "레이어 마스크 숨김 브러시 활성화"
+            : _maskRevealMode ? "레이어 마스크 복원 브러시 활성화"
+            : "브러시 해제");
     }
 
     private void UpdateBrushButtons()
@@ -2222,6 +2477,8 @@ public partial class MainWindow : Window
         EraserButton.Background = _eraseMode ? FindBrush("AccentWarmBrush") : FindBrush("PanelLiftBrush");
         RestoreButton.Background = _restoreMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         AutoRestoreButton.Background = _autoRestoreMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+        MaskHideButton.Background = _maskHideMode ? FindBrush("AccentWarmBrush") : FindBrush("PanelLiftBrush");
+        MaskRevealButton.Background = _maskRevealMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
     }
 
     private void ResetInteractionModes()
@@ -2232,6 +2489,8 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
         _lastBrushPoint = null;
         CropRect.Visibility = Visibility.Collapsed;
         BrushGhost.Visibility = Visibility.Collapsed;

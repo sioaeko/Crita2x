@@ -5,6 +5,7 @@ namespace Waifu16K.Models;
 public sealed record ImageLayerSnapshot(
     string Name,
     BitmapSource Bitmap,
+    BitmapSource? Mask,
     bool IsVisible,
     double Opacity,
     ImageBlendMode BlendMode);

@@ -64,6 +64,13 @@
             <Setter Property="TextAlignment" Value="Center" />
             <Setter Property="Margin" Value="0,0,0,14" />
         </Style>
+
+        <Style x:Key="StatusActionButton" TargetType="{x:Type Button}" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="MinHeight" Value="26" />
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -1006,6 +1013,48 @@
                                         PreviewMouseLeftButtonUp="LayerOpacitySlider_MouseUp" />
                                 <Button Click="MergeVisibleLayers_Click"
                                         Margin="0,6,0,0">보이는 레이어 병합</Button>
+
+                                <TextBlock Text="마스크" Style="{StaticResource ToolLabel}" Margin="0,14,0,4" />
+                                <UniformGrid Columns="2" Margin="0,0,0,8">
+                                    <Button Click="AddLayerMask_Click" Margin="0,0,4,8">마스크 추가</Button>
+                                    <Button Click="RemoveLayerMask_Click" Margin="4,0,0,8">마스크 삭제</Button>
+                                    <Button Click="InvertLayerMask_Click" Margin="0,0,4,0">마스크 반전</Button>
+                                    <Button x:Name="MaskHideButton" Click="MaskHideBrush_Click" Margin="4,0,0,0">숨김 브러시</Button>
+                                </UniformGrid>
+                                <Button x:Name="MaskRevealButton"
+                                        Click="MaskRevealBrush_Click"
+                                        Margin="0,0,0,8">복원 브러시</Button>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="마스크 브러시" Style="{StaticResource ToolLabel}" Margin="0,0,0,4" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding ElementName=MaskBrushSizeSlider, Path=Value, StringFormat={}{0:F0}}"
+                                               Style="{StaticResource ToolLabel}"
+                                               Margin="0,0,0,4" />
+                                </Grid>
+                                <Slider x:Name="MaskBrushSizeSlider"
+                                        Minimum="8"
+                                        Maximum="220"
+                                        Value="56" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="강도" Style="{StaticResource ToolLabel}" Margin="0,0,0,4" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding ElementName=MaskBrushStrengthSlider, Path=Value, StringFormat={}{0:F0}}"
+                                               Style="{StaticResource ToolLabel}"
+                                               Margin="0,0,0,4" />
+                                </Grid>
+                                <Slider x:Name="MaskBrushStrengthSlider"
+                                        Minimum="5"
+                                        Maximum="100"
+                                        Value="85" />
                             </StackPanel>
 
                             <ListBox x:Name="LayerList"
@@ -1064,6 +1113,10 @@
                                                            Margin="0,4,0,0"
                                                            TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Text="{Binding BlendModeText}"
+                                                           Style="{StaticResource MutedText}"
+                                                           Margin="0,2,0,0"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding MaskText}"
                                                            Style="{StaticResource MutedText}"
                                                            Margin="0,2,0,0"
                                                            TextTrimming="CharacterEllipsis" />
@@ -1220,11 +1273,52 @@
                 Background="#09090A"
                 BorderBrush="{StaticResource LineBrush}"
                 BorderThickness="0,1,0,0">
-            <TextBlock x:Name="StatusText"
-                       Text="준비됨"
-                       Foreground="{StaticResource MutedInkBrush}"
-                       VerticalAlignment="Center"
-                       Margin="18,0" />
+            <Grid Margin="18,0"
+                  shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="StatusText"
+                           Text="준비됨"
+                           Foreground="{StaticResource MutedInkBrush}"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <TextBlock x:Name="LastOutputNameText"
+                               Text="완료 결과 없음"
+                               Style="{StaticResource MutedText}"
+                               MaxWidth="260"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center"
+                               Margin="0,0,10,0" />
+                    <Button x:Name="OpenLastOutputButton"
+                            Style="{StaticResource StatusActionButton}"
+                            Click="OpenLastOutput_Click"
+                            IsEnabled="False"
+                            Margin="0,0,6,0"
+                            ToolTip="최근 완료 이미지를 미리보기에서 열기">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8A7;" Style="{StaticResource ButtonIconGlyph}" />
+                            <TextBlock Text="결과 보기" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="RevealLastOutputButton"
+                            Style="{StaticResource StatusActionButton}"
+                            Click="RevealLastOutput_Click"
+                            IsEnabled="False"
+                            ToolTip="탐색기에서 최근 완료 파일 위치 열기">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8B7;" Style="{StaticResource ButtonIconGlyph}" />
+                            <TextBlock Text="위치" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>

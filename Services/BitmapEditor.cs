@@ -505,8 +505,86 @@ public static class BitmapEditor
         return CreateBitmap(new byte[width * height * 4], width, height, dpiX, dpiY);
     }
 
+    public static BitmapSource CreateMask(int width, int height, byte value = 255, double dpiX = 96, double dpiY = 96)
+    {
+        width = Math.Max(1, width);
+        height = Math.Max(1, height);
+        byte[] pixels = new byte[width * height * 4];
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            pixels[i] = value;
+            pixels[i + 1] = value;
+            pixels[i + 2] = value;
+            pixels[i + 3] = 255;
+        }
+
+        return CreateBitmap(pixels, width, height, dpiX, dpiY);
+    }
+
+    public static BitmapSource ApplyMaskBrush(BitmapSource mask, int centerX, int centerY, int radius, bool reveal, double strength)
+    {
+        mask = ToBgra32(mask);
+        int width = mask.PixelWidth;
+        int height = mask.PixelHeight;
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        mask.CopyPixels(pixels, stride, 0);
+
+        radius = Math.Clamp(radius, 2, 400);
+        strength = Math.Clamp(strength, 0.02, 1.0);
+        int minX = Math.Max(0, centerX - radius);
+        int maxX = Math.Min(width - 1, centerX + radius);
+        int minY = Math.Max(0, centerY - radius);
+        int maxY = Math.Min(height - 1, centerY + radius);
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            for (int x = minX; x <= maxX; x++)
+            {
+                double distance = Math.Sqrt(((x - centerX) * (x - centerX)) + ((y - centerY) * (y - centerY)));
+                if (distance > radius)
+                {
+                    continue;
+                }
+
+                double pressure = Math.Pow(1.0 - Math.Clamp(distance / radius, 0, 1), 0.65) * strength;
+                int index = (y * stride) + (x * 4);
+                double current = pixels[index] / 255.0;
+                double target = reveal ? 1.0 : 0.0;
+                byte value = ClampToByte((current + ((target - current) * pressure)) * 255.0);
+                pixels[index] = value;
+                pixels[index + 1] = value;
+                pixels[index + 2] = value;
+                pixels[index + 3] = 255;
+            }
+        }
+
+        return CreateBitmap(pixels, width, height, mask.DpiX, mask.DpiY);
+    }
+
+    public static BitmapSource InvertMask(BitmapSource mask)
+    {
+        mask = ToBgra32(mask);
+        int width = mask.PixelWidth;
+        int height = mask.PixelHeight;
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        mask.CopyPixels(pixels, stride, 0);
+
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            byte value = ClampToByte(255 - pixels[i]);
+            pixels[i] = value;
+            pixels[i + 1] = value;
+            pixels[i + 2] = value;
+            pixels[i + 3] = 255;
+        }
+
+        return CreateBitmap(pixels, width, height, mask.DpiX, mask.DpiY);
+    }
+
     public static BitmapSource CompositeLayers(
-        IEnumerable<(BitmapSource Bitmap, double Opacity, ImageBlendMode BlendMode)> layers,
+        IEnumerable<(BitmapSource Bitmap, double Opacity, ImageBlendMode BlendMode, BitmapSource? Mask)> layers,
         int width,
         int height,
         double dpiX,
@@ -517,7 +595,7 @@ public static class BitmapEditor
         int outputStride = width * 4;
         byte[] output = new byte[outputStride * height];
 
-        foreach ((BitmapSource layerSource, double opacityValue, ImageBlendMode blendMode) in layers)
+        foreach ((BitmapSource layerSource, double opacityValue, ImageBlendMode blendMode, BitmapSource? maskSource) in layers)
         {
             double opacity = Math.Clamp(opacityValue, 0, 1);
             if (opacity <= 0)
@@ -531,6 +609,14 @@ public static class BitmapEditor
             int layerStride = layer.PixelWidth * 4;
             byte[] input = new byte[layerStride * layer.PixelHeight];
             layer.CopyPixels(input, layerStride, 0);
+            BitmapSource? mask = maskSource is null ? null : ToBgra32(maskSource);
+            int maskStride = mask is null ? 0 : mask.PixelWidth * 4;
+            byte[]? maskPixels = null;
+            if (mask is not null)
+            {
+                maskPixels = new byte[maskStride * mask.PixelHeight];
+                mask.CopyPixels(maskPixels, maskStride, 0);
+            }
 
             for (int y = 0; y < layerHeight; y++)
             {
@@ -540,7 +626,8 @@ public static class BitmapEditor
                 {
                     int sourceIndex = sourceRow + (x * 4);
                     int outputIndex = outputRow + (x * 4);
-                    double sourceAlpha = (input[sourceIndex + 3] / 255.0) * opacity;
+                    double maskAlpha = GetMaskAlpha(maskPixels, mask, maskStride, x, y);
+                    double sourceAlpha = (input[sourceIndex + 3] / 255.0) * opacity * maskAlpha;
                     if (sourceAlpha <= 0)
                     {
                         continue;
@@ -567,6 +654,23 @@ public static class BitmapEditor
         }
 
         return CreateBitmap(output, width, height, dpiX, dpiY);
+    }
+
+    private static double GetMaskAlpha(byte[]? maskPixels, BitmapSource? mask, int maskStride, int x, int y)
+    {
+        if (maskPixels is null || mask is null)
+        {
+            return 1.0;
+        }
+
+        if (x < 0 || y < 0 || x >= mask.PixelWidth || y >= mask.PixelHeight)
+        {
+            return 0.0;
+        }
+
+        int index = (y * maskStride) + (x * 4);
+        double gray = (maskPixels[index] + maskPixels[index + 1] + maskPixels[index + 2]) / 765.0;
+        return gray * (maskPixels[index + 3] / 255.0);
     }
 
     private static byte BlendChannel(byte source, byte target, ImageBlendMode blendMode, double targetAlpha)

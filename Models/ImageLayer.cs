@@ -8,6 +8,7 @@ public sealed class ImageLayer : INotifyPropertyChanged
 {
     private string _name;
     private BitmapSource _bitmap;
+    private BitmapSource? _mask;
     private bool _isVisible = true;
     private double _opacity = 100;
     private ImageBlendMode _blendMode = ImageBlendMode.Normal;
@@ -39,6 +40,23 @@ public sealed class ImageLayer : INotifyPropertyChanged
             _bitmap = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(Detail));
+        }
+    }
+
+    public BitmapSource? Mask
+    {
+        get => _mask;
+        set
+        {
+            if (ReferenceEquals(_mask, value))
+            {
+                return;
+            }
+
+            _mask = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasMask));
+            OnPropertyChanged(nameof(MaskText));
         }
     }
 
@@ -84,6 +102,10 @@ public sealed class ImageLayer : INotifyPropertyChanged
     public string Detail => $"{Bitmap.PixelWidth} x {Bitmap.PixelHeight}";
 
     public string OpacityText => $"{Opacity:F0}%";
+
+    public bool HasMask => Mask is not null;
+
+    public string MaskText => HasMask ? "마스크" : "마스크 없음";
 
     public string BlendModeText => BlendMode switch
     {
