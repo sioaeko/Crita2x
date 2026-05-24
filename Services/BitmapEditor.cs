@@ -285,6 +285,70 @@ public static class BitmapEditor
         return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
     }
 
+    public static BitmapSource ApplyCloneStampBrush(
+        BitmapSource target,
+        BitmapSource sampleSource,
+        int centerX,
+        int centerY,
+        int sourceCenterX,
+        int sourceCenterY,
+        int radius,
+        double strength)
+    {
+        target = ToBgra32(target);
+        sampleSource = ToBgra32(sampleSource);
+
+        if (target.PixelWidth != sampleSource.PixelWidth || target.PixelHeight != sampleSource.PixelHeight)
+        {
+            throw new InvalidOperationException("복제 도장은 대상과 샘플 이미지 크기가 같을 때만 사용할 수 있습니다.");
+        }
+
+        int width = target.PixelWidth;
+        int height = target.PixelHeight;
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        byte[] sourcePixels = new byte[stride * height];
+        target.CopyPixels(pixels, stride, 0);
+        sampleSource.CopyPixels(sourcePixels, stride, 0);
+
+        radius = Math.Clamp(radius, 2, 400);
+        strength = Math.Clamp(strength, 0.1, 1.0);
+        int minX = Math.Max(0, centerX - radius);
+        int maxX = Math.Min(width - 1, centerX + radius);
+        int minY = Math.Max(0, centerY - radius);
+        int maxY = Math.Min(height - 1, centerY + radius);
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            for (int x = minX; x <= maxX; x++)
+            {
+                double distance = Math.Sqrt(((x - centerX) * (x - centerX)) + ((y - centerY) * (y - centerY)));
+                if (distance > radius)
+                {
+                    continue;
+                }
+
+                int sourceX = sourceCenterX + (x - centerX);
+                int sourceY = sourceCenterY + (y - centerY);
+                if (sourceX < 0 || sourceY < 0 || sourceX >= width || sourceY >= height)
+                {
+                    continue;
+                }
+
+                double pressure = Math.Pow(1.0 - Math.Clamp(distance / radius, 0, 1), 0.72) * strength;
+                int targetIndex = (y * stride) + (x * 4);
+                int sourceIndex = (sourceY * stride) + (sourceX * 4);
+                for (int channel = 0; channel < 4; channel++)
+                {
+                    pixels[targetIndex + channel] = ClampToByte(
+                        pixels[targetIndex + channel] + ((sourcePixels[sourceIndex + channel] - pixels[targetIndex + channel]) * pressure));
+                }
+            }
+        }
+
+        return CreateBitmap(pixels, width, height, target.DpiX, target.DpiY);
+    }
+
     public static BitmapSource ApplyAutoRestoreBrush(BitmapSource target, BitmapSource restoreSource, int centerX, int centerY, int radius, int sensitivity, double strength)
     {
         target = ToBgra32(target);

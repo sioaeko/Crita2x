@@ -481,6 +481,14 @@
                                              Stroke="{StaticResource AccentWarmBrush}"
                                              StrokeThickness="2"
                                              Fill="#22FFB86B" />
+                                    <Ellipse x:Name="CloneSourceMarker"
+                                             Visibility="Collapsed"
+                                             Width="22"
+                                             Height="22"
+                                             Stroke="{StaticResource AccentBrush}"
+                                             StrokeThickness="2"
+                                             Fill="#1A82DCCF"
+                                             IsHitTestVisible="False" />
                                 </Canvas>
                             </Grid>
                         </ScrollViewer>
@@ -930,13 +938,29 @@
                                 </Grid>
                                 <Slider x:Name="AutoRestoreStrengthSlider" Minimum="20" Maximum="100" Value="84" />
 
-                                <UniformGrid Columns="3" Margin="0,8,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="복제 강도" Style="{StaticResource ToolLabel}" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding ElementName=CloneStrengthSlider, Path=Value, StringFormat={}{0:F0}}"
+                                               Style="{StaticResource ToolLabel}" />
+                                </Grid>
+                                <Slider x:Name="CloneStrengthSlider" Minimum="10" Maximum="100" Value="86" />
+
+                                <UniformGrid Columns="2" Margin="0,8,0,0">
                                     <Button x:Name="EraserButton" Click="Eraser_Click" Margin="0,0,6,8">지우개</Button>
-                                    <Button x:Name="RestoreButton" Click="Restore_Click" Margin="3,0,3,8">복원</Button>
+                                    <Button x:Name="RestoreButton" Click="Restore_Click" Margin="6,0,0,8">복원</Button>
                                     <Button x:Name="AutoRestoreButton"
                                             Click="AutoRestore_Click"
-                                            Margin="6,0,0,8"
+                                            Margin="0,0,6,0"
                                             ToolTip="주변 전경과 비슷한 원본 픽셀만 자동으로 되살립니다.">자동 복원</Button>
+                                    <Button x:Name="CloneStampButton"
+                                            Click="CloneStamp_Click"
+                                            Margin="6,0,0,0"
+                                            ToolTip="Alt+클릭으로 원본 위치를 찍고 드래그하면 복제합니다.">복제 도장</Button>
                                 </UniformGrid>
                             </StackPanel>
                         </ScrollViewer>

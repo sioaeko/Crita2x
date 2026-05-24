@@ -52,6 +52,7 @@ public partial class MainWindow : Window
     private bool _eraseMode;
     private bool _restoreMode;
     private bool _autoRestoreMode;
+    private bool _cloneStampMode;
     private bool _maskHideMode;
     private bool _maskRevealMode;
     private bool _brushHistoryCaptured;
@@ -67,6 +68,10 @@ public partial class MainWindow : Window
     private int _layerMoveStartOffsetY;
     private Int32Rect? _selectionRect;
     private Point? _lastBrushPoint;
+    private Point? _cloneSourcePoint;
+    private Point? _cloneStrokeStart;
+    private Point? _cloneStrokeSourceStart;
+    private BitmapSource? _cloneStrokeSourceBitmap;
     private Color _chromaColor = Colors.White;
     private int _historyIndex = -1;
     private int _historySequence;
@@ -448,12 +453,14 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _cloneStampMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
         _isSelecting = false;
         _moveLayerMode = false;
         _isMovingLayer = false;
+        ClearCloneStroke();
         UpdateBrushButtons();
         UpdateSelectionButton();
         UpdateMoveLayerButton();
@@ -532,6 +539,7 @@ public partial class MainWindow : Window
         _eraseMode = !_eraseMode;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _cloneStampMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
@@ -539,6 +547,7 @@ public partial class MainWindow : Window
         _moveLayerMode = false;
         _isMovingLayer = false;
         _pickChroma = false;
+        ClearCloneStroke();
         UpdateBrushState();
     }
 
@@ -547,6 +556,7 @@ public partial class MainWindow : Window
         _restoreMode = !_restoreMode;
         _eraseMode = false;
         _autoRestoreMode = false;
+        _cloneStampMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
@@ -554,6 +564,7 @@ public partial class MainWindow : Window
         _moveLayerMode = false;
         _isMovingLayer = false;
         _pickChroma = false;
+        ClearCloneStroke();
         UpdateBrushState();
     }
 
@@ -567,6 +578,7 @@ public partial class MainWindow : Window
         _autoRestoreMode = !_autoRestoreMode;
         _eraseMode = false;
         _restoreMode = false;
+        _cloneStampMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
@@ -574,6 +586,7 @@ public partial class MainWindow : Window
         _moveLayerMode = false;
         _isMovingLayer = false;
         _pickChroma = false;
+        ClearCloneStroke();
 
         if (_autoRestoreMode && !CanUseAutoRestoreBrush())
         {
@@ -584,6 +597,33 @@ public partial class MainWindow : Window
         }
 
         UpdateBrushState();
+    }
+
+    private void CloneStamp_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        _cloneStampMode = !_cloneStampMode;
+        _eraseMode = false;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
+        _selectionMode = false;
+        _isSelecting = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
+        _pickChroma = false;
+        ClearCloneStroke();
+        UpdateBrushState();
+
+        if (_cloneStampMode && _cloneSourcePoint is null)
+        {
+            SetStatus("복제 도장 활성화: Alt+클릭으로 원본 위치를 먼저 찍으세요.");
+        }
     }
 
     private void RotateLeft_Click(object sender, RoutedEventArgs e)
@@ -616,6 +656,7 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _cloneStampMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
@@ -623,6 +664,7 @@ public partial class MainWindow : Window
         _moveLayerMode = false;
         _isMovingLayer = false;
         _pickChroma = false;
+        ClearCloneStroke();
         CropButton.Background = _cropMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         UpdateBrushButtons();
         UpdateSelectionButton();
@@ -675,11 +717,13 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _cloneStampMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _moveLayerMode = false;
         _isMovingLayer = false;
         _pickChroma = false;
+        ClearCloneStroke();
         CropRect.Visibility = Visibility.Collapsed;
         UpdateBrushButtons();
         UpdateSelectionButton();
@@ -1069,11 +1113,13 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _cloneStampMode = false;
         _selectionMode = false;
         _isSelecting = false;
         _moveLayerMode = false;
         _isMovingLayer = false;
         _pickChroma = false;
+        ClearCloneStroke();
         UpdateBrushState();
     }
 
@@ -1089,11 +1135,13 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _cloneStampMode = false;
         _selectionMode = false;
         _isSelecting = false;
         _moveLayerMode = false;
         _isMovingLayer = false;
         _pickChroma = false;
+        ClearCloneStroke();
         UpdateBrushState();
     }
 
@@ -1191,9 +1239,11 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _cloneStampMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _pickChroma = false;
+        ClearCloneStroke();
         CropRect.Visibility = Visibility.Collapsed;
         UpdateBrushButtons();
         UpdateSelectionButton();
@@ -1821,6 +1871,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_cloneStampMode && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
+        {
+            _cloneSourcePoint = imagePoint;
+            ClearCloneStroke();
+            UpdateCloneSourceMarker();
+            SetStatus($"복제 원본 지정: X {(int)Math.Round(imagePoint.X)}, Y {(int)Math.Round(imagePoint.Y)}");
+            return;
+        }
+
         if (IsBrushModeActive())
         {
             Mouse.Capture(ImageHost);
@@ -1943,6 +2002,7 @@ public partial class MainWindow : Window
         _layerMoveCaptured = false;
         _brushHistoryCaptured = false;
         _lastBrushPoint = null;
+        ClearCloneStroke();
         ImageHost.Cursor = null;
         Mouse.Capture(null);
     }
@@ -2476,6 +2536,7 @@ public partial class MainWindow : Window
             _selectionRect = null;
             SelectionRect.Visibility = Visibility.Collapsed;
             GridOverlay.Visibility = Visibility.Collapsed;
+            CloneSourceMarker.Visibility = Visibility.Collapsed;
             HideActiveLayerBounds();
             ImageHost.Width = double.NaN;
             ImageHost.Height = double.NaN;
@@ -2502,6 +2563,7 @@ public partial class MainWindow : Window
         UpdateCompareView();
         UpdateSelectionOverlay();
         UpdateGridOverlay();
+        UpdateCloneSourceMarker();
         UpdateActiveLayerBounds();
     }
 
@@ -3162,6 +3224,11 @@ public partial class MainWindow : Window
             return "자동 복원 브러시";
         }
 
+        if (_cloneStampMode)
+        {
+            return "복제 도장";
+        }
+
         return _restoreMode ? "복원 브러시" : "알파 지우개";
     }
 
@@ -3225,6 +3292,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_cloneStampMode && _cloneSourcePoint is null)
+        {
+            SetStatus("복제 도장은 Alt+클릭으로 원본 위치를 먼저 찍어야 합니다.");
+            return;
+        }
+
         if (!_brushHistoryCaptured)
         {
             PushUndo();
@@ -3280,10 +3353,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        int layerOffsetX = 0;
+        int layerOffsetY = 0;
         if (GetActiveLayer() is ImageLayer editLayer)
         {
-            x -= editLayer.OffsetX;
-            y -= editLayer.OffsetY;
+            layerOffsetX = editLayer.OffsetX;
+            layerOffsetY = editLayer.OffsetY;
+            x -= layerOffsetX;
+            y -= layerOffsetY;
         }
 
         BitmapSource? target = GetEditableBitmap();
@@ -3292,16 +3369,42 @@ public partial class MainWindow : Window
             return;
         }
 
-        BitmapSource edited = _autoRestoreMode
-            ? BitmapEditor.ApplyAutoRestoreBrush(
+        BitmapSource edited;
+        if (_cloneStampMode)
+        {
+            _cloneStrokeStart ??= point;
+            _cloneStrokeSourceStart ??= _cloneSourcePoint!.Value;
+            _cloneStrokeSourceBitmap ??= target;
+
+            Point strokeStart = _cloneStrokeStart.Value;
+            Point sourceStart = _cloneStrokeSourceStart.Value;
+            int sourceX = (int)Math.Round(sourceStart.X + (point.X - strokeStart.X)) - layerOffsetX;
+            int sourceY = (int)Math.Round(sourceStart.Y + (point.Y - strokeStart.Y)) - layerOffsetY;
+            edited = BitmapEditor.ApplyCloneStampBrush(
+                target,
+                _cloneStrokeSourceBitmap,
+                x,
+                y,
+                sourceX,
+                sourceY,
+                radius,
+                CloneStrengthSlider.Value / 100.0);
+        }
+        else if (_autoRestoreMode)
+        {
+            edited = BitmapEditor.ApplyAutoRestoreBrush(
                 target,
                 _restoreSourceBitmap!,
                 x,
                 y,
                 radius,
                 (int)AutoRestoreSensitivitySlider.Value,
-                AutoRestoreStrengthSlider.Value / 100.0)
-            : BitmapEditor.ApplyAlphaBrush(target, x, y, radius, restore: _restoreMode);
+                AutoRestoreStrengthSlider.Value / 100.0);
+        }
+        else
+        {
+            edited = BitmapEditor.ApplyAlphaBrush(target, x, y, radius, restore: _restoreMode);
+        }
 
         SetEditableBitmap(edited, refreshPreview: false);
     }
@@ -3314,7 +3417,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        bool restorativeBrush = _restoreMode || _autoRestoreMode || _maskRevealMode;
+        bool restorativeBrush = _restoreMode || _autoRestoreMode || _maskRevealMode || _cloneStampMode;
         bool maskBrush = _maskHideMode || _maskRevealMode;
         double size = (maskBrush ? MaskBrushSizeSlider.Value : BrushSizeSlider.Value) * 2;
         BrushGhost.Width = size;
@@ -3355,9 +3458,16 @@ public partial class MainWindow : Window
             && target.PixelHeight == _restoreSourceBitmap.PixelHeight;
     }
 
+    private void ClearCloneStroke()
+    {
+        _cloneStrokeStart = null;
+        _cloneStrokeSourceStart = null;
+        _cloneStrokeSourceBitmap = null;
+    }
+
     private bool IsBrushModeActive()
     {
-        return _eraseMode || _restoreMode || _autoRestoreMode || _maskHideMode || _maskRevealMode;
+        return _eraseMode || _restoreMode || _autoRestoreMode || _cloneStampMode || _maskHideMode || _maskRevealMode;
     }
 
     private bool TryGetImagePoint(Point hostPoint, out Point imagePoint)
@@ -3372,6 +3482,22 @@ public partial class MainWindow : Window
         double y = Math.Clamp(hostPoint.Y, 0, _currentBitmap.PixelHeight - 1);
         imagePoint = new Point(x, y);
         return true;
+    }
+
+    private void UpdateCloneSourceMarker()
+    {
+        if (!_cloneStampMode || _currentBitmap is null || _cloneSourcePoint is not { } sourcePoint)
+        {
+            CloneSourceMarker.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        double size = Math.Clamp(BrushSizeSlider.Value * 0.55, 18, 54);
+        CloneSourceMarker.Width = size;
+        CloneSourceMarker.Height = size;
+        Canvas.SetLeft(CloneSourceMarker, sourcePoint.X - (size / 2));
+        Canvas.SetTop(CloneSourceMarker, sourcePoint.Y - (size / 2));
+        CloneSourceMarker.Visibility = Visibility.Visible;
     }
 
     private static Color SampleColor(BitmapSource source, int x, int y)
@@ -3392,6 +3518,7 @@ public partial class MainWindow : Window
         SetStatus(_eraseMode ? "지우개 브러시 활성화"
             : _restoreMode ? "복원 브러시 활성화"
             : _autoRestoreMode ? "자동 복원 브러시 활성화: 전경으로 판단되는 부분만 복구"
+            : _cloneStampMode ? (_cloneSourcePoint is null ? "복제 도장 활성화: Alt+클릭으로 원본 위치를 찍으세요." : "복제 도장 활성화: 드래그하면 샘플 위치를 따라 복제")
             : _maskHideMode ? "레이어 마스크 숨김 브러시 활성화"
             : _maskRevealMode ? "레이어 마스크 복원 브러시 활성화"
             : "브러시 해제");
@@ -3402,8 +3529,10 @@ public partial class MainWindow : Window
         EraserButton.Background = _eraseMode ? FindBrush("AccentWarmBrush") : FindBrush("PanelLiftBrush");
         RestoreButton.Background = _restoreMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         AutoRestoreButton.Background = _autoRestoreMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+        CloneStampButton.Background = _cloneStampMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         MaskHideButton.Background = _maskHideMode ? FindBrush("AccentWarmBrush") : FindBrush("PanelLiftBrush");
         MaskRevealButton.Background = _maskRevealMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+        UpdateCloneSourceMarker();
     }
 
     private void UpdateSelectionButton()
@@ -3460,12 +3589,16 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _cloneStampMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _lastBrushPoint = null;
+        _cloneSourcePoint = null;
+        ClearCloneStroke();
         CropRect.Visibility = Visibility.Collapsed;
         SelectionRect.Visibility = Visibility.Collapsed;
         BrushGhost.Visibility = Visibility.Collapsed;
+        CloneSourceMarker.Visibility = Visibility.Collapsed;
         CropButton.Background = FindBrush("PanelLiftBrush");
         UpdateBrushButtons();
         UpdateSelectionButton();
