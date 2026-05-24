@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private BitmapSource? _currentBitmap;
     private BitmapSource? _originalBitmap;
     private BitmapSource? _restoreSourceBitmap;
+    private BitmapSource? _compareBaselineBitmap;
     private string? _currentPath;
     private CancellationTokenSource? _queueCancellation;
 
@@ -55,6 +56,7 @@ public partial class MainWindow : Window
     private int _historyIndex = -1;
     private int _historySequence;
     private bool _suppressHistorySelection;
+    private bool _compareMode;
 
     public MainWindow()
     {
@@ -737,6 +739,36 @@ public partial class MainWindow : Window
         FitImageToView();
     }
 
+    private void SetCompareBaseline_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        _compareBaselineBitmap = _currentBitmap;
+        UpdateCompareView();
+        SetStatus("현재 상태를 비교 기준으로 저장했습니다.");
+    }
+
+    private void CompareToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        _compareBaselineBitmap ??= _originalBitmap ?? _currentBitmap;
+        _compareMode = !_compareMode;
+        UpdateCompareView();
+        SetStatus(_compareMode ? "비교 보기 켜짐" : "비교 보기 꺼짐");
+    }
+
+    private void CompareSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        UpdateCompareOverlay();
+    }
+
     private void SetZoom(double zoom)
     {
         SetZoom(zoom, null, null);
@@ -1208,8 +1240,10 @@ public partial class MainWindow : Window
             BitmapSource image = BitmapEditor.LoadBitmap(path);
             _originalBitmap = image;
             _restoreSourceBitmap = image;
+            _compareBaselineBitmap = image;
             _currentBitmap = image;
             _currentPath = path;
+            _compareMode = false;
             ClearHistory();
             ResetInteractionModes();
             _zoom = 1.0;
@@ -1242,6 +1276,7 @@ public partial class MainWindow : Window
             CurrentFileText.Text = "준비됨";
             ImageInfoText.Text = "";
             CurrentDetailText.Text = "선택된 이미지 없음";
+            UpdateCompareView();
             return;
         }
 
@@ -1254,6 +1289,48 @@ public partial class MainWindow : Window
         ImageInfoText.Text = $"{bitmap.PixelWidth} x {bitmap.PixelHeight}";
         CurrentDetailText.Text = $"{Path.GetFileName(path ?? "편집 이미지")}\n{bitmap.PixelWidth} x {bitmap.PixelHeight}\n{bitmap.Format}";
         ApplyZoom();
+        UpdateCompareView();
+    }
+
+    private void UpdateCompareView()
+    {
+        bool hasImage = _currentBitmap is not null;
+        bool canCompare = hasImage && _compareBaselineBitmap is not null;
+        bool showCompare = _compareMode && canCompare;
+
+        CompareBaselineButton.IsEnabled = hasImage;
+        CompareToggleButton.IsEnabled = canCompare;
+        CompareSlider.IsEnabled = canCompare;
+        CompareImage.Source = showCompare ? _compareBaselineBitmap : null;
+        CompareImage.Visibility = showCompare ? Visibility.Visible : Visibility.Collapsed;
+        CompareOverlay.Visibility = showCompare ? Visibility.Visible : Visibility.Collapsed;
+        CompareToggleButton.Background = showCompare ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+        CompareToggleButton.Foreground = showCompare ? new SolidColorBrush(Color.FromRgb(7, 19, 17)) : FindBrush("InkBrush");
+
+        UpdateCompareOverlay();
+    }
+
+    private void UpdateCompareOverlay()
+    {
+        if (_currentBitmap is null || CompareClip is null)
+        {
+            return;
+        }
+
+        double width = _currentBitmap.PixelWidth;
+        double height = _currentBitmap.PixelHeight;
+        double split = width * Math.Clamp(CompareSlider.Value / 100.0, 0, 1);
+
+        CompareClip.Rect = new Rect(0, 0, split, height);
+        CompareOverlay.Width = width;
+        CompareOverlay.Height = height;
+        CompareDivider.Height = height;
+        Canvas.SetLeft(CompareDivider, Math.Clamp(split - 1, 0, Math.Max(0, width - 2)));
+        Canvas.SetTop(CompareDivider, 0);
+        Canvas.SetLeft(CompareBeforeBadge, 12);
+        Canvas.SetTop(CompareBeforeBadge, 12);
+        Canvas.SetLeft(CompareAfterBadge, Math.Max(12, width - 58));
+        Canvas.SetTop(CompareAfterBadge, 12);
     }
 
     private void ClearCurrentImage()
@@ -1261,7 +1338,9 @@ public partial class MainWindow : Window
         _currentBitmap = null;
         _originalBitmap = null;
         _restoreSourceBitmap = null;
+        _compareBaselineBitmap = null;
         _currentPath = null;
+        _compareMode = false;
         ClearHistory();
         ResetInteractionModes();
         UpdatePreview(null, null);

@@ -362,6 +362,44 @@
                                        Stretch="Fill"
                                        SnapsToDevicePixels="True"
                                        RenderOptions.BitmapScalingMode="HighQuality" />
+                                <Image x:Name="CompareImage"
+                                       Visibility="Collapsed"
+                                       Stretch="Fill"
+                                       SnapsToDevicePixels="True"
+                                       RenderOptions.BitmapScalingMode="HighQuality">
+                                    <Image.Clip>
+                                        <RectangleGeometry x:Name="CompareClip" Rect="0,0,0,0" />
+                                    </Image.Clip>
+                                </Image>
+                                <Canvas x:Name="CompareOverlay"
+                                        Visibility="Collapsed"
+                                        IsHitTestVisible="False">
+                                    <Rectangle x:Name="CompareDivider"
+                                               Width="2"
+                                               Fill="{StaticResource AccentBrush}" />
+                                    <Border x:Name="CompareBeforeBadge"
+                                            Background="#D80B0B0D"
+                                            BorderBrush="{StaticResource AccentBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="6"
+                                            Padding="8,4">
+                                        <TextBlock Text="기준"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource InkBrush}" />
+                                    </Border>
+                                    <Border x:Name="CompareAfterBadge"
+                                            Background="#D80B0B0D"
+                                            BorderBrush="{StaticResource LineBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="6"
+                                            Padding="8,4">
+                                        <TextBlock Text="현재"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource InkBrush}" />
+                                    </Border>
+                                </Canvas>
                                 <Canvas x:Name="OverlayCanvas"
                                         IsHitTestVisible="False">
                                     <Rectangle x:Name="CropRect"
@@ -405,6 +443,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock x:Name="CurrentFileText"
                                Text="준비됨"
@@ -413,6 +452,26 @@
                                VerticalAlignment="Center"
                                Margin="12,0" />
                     <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                Margin="8,0">
+                        <Button x:Name="CompareBaselineButton"
+                                Click="SetCompareBaseline_Click"
+                                ToolTip="현재 상태를 비교 기준으로 저장">기준</Button>
+                        <Button x:Name="CompareToggleButton"
+                                Click="CompareToggle_Click"
+                                Margin="6,0,0,0"
+                                ToolTip="기준과 현재 이미지 비교">비교</Button>
+                        <Slider x:Name="CompareSlider"
+                                Width="118"
+                                Minimum="0"
+                                Maximum="100"
+                                Value="50"
+                                IsEnabled="False"
+                                ValueChanged="CompareSlider_ValueChanged"
+                                Margin="10,0,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center"
                                 Margin="8,0">
@@ -436,7 +495,7 @@
                                 ToolTip="화면에 맞춤">맞춤</Button>
                     </StackPanel>
                     <TextBlock x:Name="ImageInfoText"
-                               Grid.Column="2"
+                               Grid.Column="3"
                                Text=""
                                Foreground="{StaticResource MutedInkBrush}"
                                VerticalAlignment="Center"
