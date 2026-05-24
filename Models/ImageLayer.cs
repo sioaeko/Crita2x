@@ -10,6 +10,7 @@ public sealed class ImageLayer : INotifyPropertyChanged
     private BitmapSource _bitmap;
     private bool _isVisible = true;
     private double _opacity = 100;
+    private ImageBlendMode _blendMode = ImageBlendMode.Normal;
 
     public ImageLayer(string name, BitmapSource bitmap)
     {
@@ -64,9 +65,35 @@ public sealed class ImageLayer : INotifyPropertyChanged
         }
     }
 
+    public ImageBlendMode BlendMode
+    {
+        get => _blendMode;
+        set
+        {
+            if (_blendMode == value)
+            {
+                return;
+            }
+
+            _blendMode = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(BlendModeText));
+        }
+    }
+
     public string Detail => $"{Bitmap.PixelWidth} x {Bitmap.PixelHeight}";
 
     public string OpacityText => $"{Opacity:F0}%";
+
+    public string BlendModeText => BlendMode switch
+    {
+        ImageBlendMode.Multiply => "곱하기",
+        ImageBlendMode.Screen => "스크린",
+        ImageBlendMode.Overlay => "오버레이",
+        ImageBlendMode.Darken => "어둡게",
+        ImageBlendMode.Lighten => "밝게",
+        _ => "일반"
+    };
 
     private void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {

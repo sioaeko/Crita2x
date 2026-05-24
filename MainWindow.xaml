@@ -934,6 +934,33 @@
                             </Border>
 
                             <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                                <TextBlock Text="이름" Style="{StaticResource ToolLabel}" Margin="0,0,0,4" />
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="72" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="LayerNameBox"
+                                             IsEnabled="False" />
+                                    <Button Grid.Column="1"
+                                            Click="RenameLayer_Click"
+                                            Margin="8,0,0,0">적용</Button>
+                                </Grid>
+
+                                <TextBlock Text="혼합" Style="{StaticResource ToolLabel}" Margin="0,0,0,4" />
+                                <ComboBox x:Name="LayerBlendModeBox"
+                                          SelectedIndex="0"
+                                          IsEnabled="False"
+                                          SelectionChanged="LayerBlendModeBox_SelectionChanged"
+                                          Margin="0,0,0,8">
+                                    <ComboBoxItem Content="일반" Tag="Normal" />
+                                    <ComboBoxItem Content="곱하기" Tag="Multiply" />
+                                    <ComboBoxItem Content="스크린" Tag="Screen" />
+                                    <ComboBoxItem Content="오버레이" Tag="Overlay" />
+                                    <ComboBoxItem Content="어둡게" Tag="Darken" />
+                                    <ComboBoxItem Content="밝게" Tag="Lighten" />
+                                </ComboBox>
+
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -951,7 +978,9 @@
                                         Maximum="100"
                                         Value="100"
                                         IsEnabled="False"
-                                        ValueChanged="LayerOpacitySlider_ValueChanged" />
+                                        ValueChanged="LayerOpacitySlider_ValueChanged"
+                                        PreviewMouseLeftButtonDown="LayerOpacitySlider_MouseDown"
+                                        PreviewMouseLeftButtonUp="LayerOpacitySlider_MouseUp" />
                                 <Button Click="MergeVisibleLayers_Click"
                                         Margin="0,6,0,0">보이는 레이어 병합</Button>
                             </StackPanel>
@@ -1000,6 +1029,7 @@
                                             </Grid.ColumnDefinitions>
                                             <CheckBox IsChecked="{Binding IsVisible, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                       Click="LayerVisibility_Click"
+                                                      PreviewMouseLeftButtonDown="LayerVisibility_MouseDown"
                                                       VerticalAlignment="Center"
                                                       ToolTip="레이어 표시" />
                                             <StackPanel Grid.Column="1">
@@ -1009,6 +1039,10 @@
                                                 <TextBlock Text="{Binding Detail}"
                                                            Style="{StaticResource MutedText}"
                                                            Margin="0,4,0,0"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding BlendModeText}"
+                                                           Style="{StaticResource MutedText}"
+                                                           Margin="0,2,0,0"
                                                            TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
                                             <TextBlock Grid.Column="2"

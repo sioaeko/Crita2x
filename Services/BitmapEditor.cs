@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Waifu16K.Models;
 
 namespace Waifu16K.Services;
 
@@ -505,7 +506,7 @@ public static class BitmapEditor
     }
 
     public static BitmapSource CompositeLayers(
-        IEnumerable<(BitmapSource Bitmap, double Opacity)> layers,
+        IEnumerable<(BitmapSource Bitmap, double Opacity, ImageBlendMode BlendMode)> layers,
         int width,
         int height,
         double dpiX,
@@ -516,7 +517,7 @@ public static class BitmapEditor
         int outputStride = width * 4;
         byte[] output = new byte[outputStride * height];
 
-        foreach ((BitmapSource layerSource, double opacityValue) in layers)
+        foreach ((BitmapSource layerSource, double opacityValue, ImageBlendMode blendMode) in layers)
         {
             double opacity = Math.Clamp(opacityValue, 0, 1);
             if (opacity <= 0)
@@ -554,7 +555,8 @@ public static class BitmapEditor
 
                     for (int channel = 0; channel < 3; channel++)
                     {
-                        double sourceColor = input[sourceIndex + channel] * sourceAlpha;
+                        byte blendedChannel = BlendChannel(input[sourceIndex + channel], output[outputIndex + channel], blendMode, targetAlpha);
+                        double sourceColor = blendedChannel * sourceAlpha;
                         double targetColor = output[outputIndex + channel] * targetAlpha * (1.0 - sourceAlpha);
                         output[outputIndex + channel] = ClampToByte((sourceColor + targetColor) / outAlpha);
                     }
@@ -565,6 +567,28 @@ public static class BitmapEditor
         }
 
         return CreateBitmap(output, width, height, dpiX, dpiY);
+    }
+
+    private static byte BlendChannel(byte source, byte target, ImageBlendMode blendMode, double targetAlpha)
+    {
+        if (targetAlpha <= 0)
+        {
+            return source;
+        }
+
+        double s = source / 255.0;
+        double t = target / 255.0;
+        double blended = blendMode switch
+        {
+            ImageBlendMode.Multiply => s * t,
+            ImageBlendMode.Screen => 1.0 - ((1.0 - s) * (1.0 - t)),
+            ImageBlendMode.Overlay => t < 0.5 ? 2.0 * s * t : 1.0 - (2.0 * (1.0 - s) * (1.0 - t)),
+            ImageBlendMode.Darken => Math.Min(s, t),
+            ImageBlendMode.Lighten => Math.Max(s, t),
+            _ => s
+        };
+
+        return ClampToByte(blended * 255.0);
     }
 
     public static void Save(BitmapSource source, string path)

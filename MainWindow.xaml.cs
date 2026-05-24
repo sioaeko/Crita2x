@@ -62,6 +62,8 @@ public partial class MainWindow : Window
     private bool _suppressLayerSelection;
     private bool _suppressLayerRefresh;
     private bool _suppressLayerControlUpdate;
+    private bool _layerOpacityEditCaptured;
+    private bool _layerVisibilityEditCaptured;
 
     public MainWindow()
     {
@@ -645,7 +647,8 @@ public partial class MainWindow : Window
         var layer = new ImageLayer($"{activeLayer.Name} 복사", activeLayer.Bitmap)
         {
             IsVisible = activeLayer.IsVisible,
-            Opacity = activeLayer.Opacity
+            Opacity = activeLayer.Opacity,
+            BlendMode = activeLayer.BlendMode
         };
         AddLayer(layer, Math.Clamp(LayerList.SelectedIndex + 1, 0, _layers.Count));
         SelectLayer(layer);
@@ -714,8 +717,20 @@ public partial class MainWindow : Window
         }
 
         RefreshCompositeFromLayers();
+        _layerVisibilityEditCaptured = false;
         RecordHistory("레이어 표시 변경");
         SetStatus("레이어 표시 상태를 변경했습니다.");
+    }
+
+    private void LayerVisibility_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_layerVisibilityEditCaptured || GetActiveLayer() is null)
+        {
+            return;
+        }
+
+        PushUndo();
+        _layerVisibilityEditCaptured = true;
     }
 
     private void LayerOpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -737,6 +752,72 @@ public partial class MainWindow : Window
 
         LayerOpacityText.Text = $"{activeLayer.Opacity:F0}%";
         RefreshCompositeFromLayers();
+    }
+
+    private void LayerOpacitySlider_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (GetActiveLayer() is null)
+        {
+            return;
+        }
+
+        PushUndo();
+        _layerOpacityEditCaptured = true;
+    }
+
+    private void LayerOpacitySlider_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_layerOpacityEditCaptured)
+        {
+            return;
+        }
+
+        _layerOpacityEditCaptured = false;
+        RecordHistory("레이어 불투명도 변경");
+        SetStatus("레이어 불투명도를 변경했습니다.");
+    }
+
+    private void LayerBlendModeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressLayerControlUpdate || GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            return;
+        }
+
+        ImageBlendMode blendMode = ParseBlendMode(GetComboTag(LayerBlendModeBox, nameof(ImageBlendMode.Normal)));
+        if (activeLayer.BlendMode == blendMode)
+        {
+            return;
+        }
+
+        PushUndo();
+        activeLayer.BlendMode = blendMode;
+        RefreshCompositeFromLayers();
+        RecordHistory($"블렌드 모드: {activeLayer.BlendModeText}");
+        SetStatus($"블렌드 모드 변경: {activeLayer.BlendModeText}");
+    }
+
+    private void RenameLayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            return;
+        }
+
+        string name = string.IsNullOrWhiteSpace(LayerNameBox.Text)
+            ? activeLayer.Name
+            : LayerNameBox.Text.Trim();
+
+        if (string.Equals(activeLayer.Name, name, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        PushUndo();
+        activeLayer.Name = name;
+        UpdateLayerControls();
+        RecordHistory("레이어 이름 변경");
+        SetStatus($"레이어 이름 변경: {name}");
     }
 
     private void ResetAdvancedSettings_Click(object sender, RoutedEventArgs e)
@@ -1505,9 +1586,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.PropertyName is nameof(ImageLayer.IsVisible) or nameof(ImageLayer.Opacity) or nameof(ImageLayer.Bitmap))
+        if (e.PropertyName is nameof(ImageLayer.IsVisible) or nameof(ImageLayer.Opacity) or nameof(ImageLayer.Bitmap) or nameof(ImageLayer.BlendMode))
         {
             RefreshCompositeFromLayers();
+            UpdateLayerControls();
+            return;
+        }
+
+        if (e.PropertyName is nameof(ImageLayer.Name))
+        {
             UpdateLayerControls();
         }
     }
@@ -1606,7 +1693,7 @@ public partial class MainWindow : Window
         BitmapSource first = _layers[0].Bitmap;
         var visibleLayers = _layers
             .Where(layer => layer.IsVisible)
-            .Select(layer => (layer.Bitmap, layer.Opacity / 100.0));
+            .Select(layer => (layer.Bitmap, layer.Opacity / 100.0, layer.BlendMode));
 
         return BitmapEditor.CompositeLayers(visibleLayers, width, height, first.DpiX, first.DpiY);
     }
@@ -1627,7 +1714,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<ImageLayerSnapshot> CaptureLayers()
     {
         return _layers
-            .Select(layer => new ImageLayerSnapshot(layer.Name, layer.Bitmap, layer.IsVisible, layer.Opacity))
+            .Select(layer => new ImageLayerSnapshot(layer.Name, layer.Bitmap, layer.IsVisible, layer.Opacity, layer.BlendMode))
             .ToArray();
     }
 
@@ -1643,7 +1730,8 @@ public partial class MainWindow : Window
                 AddLayer(new ImageLayer(snapshot.Name, snapshot.Bitmap)
                 {
                     IsVisible = snapshot.IsVisible,
-                    Opacity = snapshot.Opacity
+                    Opacity = snapshot.Opacity,
+                    BlendMode = snapshot.BlendMode
                 });
             }
 
@@ -1694,6 +1782,10 @@ public partial class MainWindow : Window
             LayerOpacitySlider.IsEnabled = activeLayer is not null;
             LayerOpacitySlider.Value = activeLayer?.Opacity ?? 100;
             LayerOpacityText.Text = activeLayer is null ? "-" : $"{activeLayer.Opacity:F0}%";
+            LayerNameBox.IsEnabled = activeLayer is not null;
+            LayerNameBox.Text = activeLayer?.Name ?? "";
+            LayerBlendModeBox.IsEnabled = activeLayer is not null;
+            SetComboByTag(LayerBlendModeBox, activeLayer?.BlendMode.ToString() ?? nameof(ImageBlendMode.Normal));
         }
         finally
         {
@@ -2124,6 +2216,13 @@ public partial class MainWindow : Window
                 return;
             }
         }
+    }
+
+    private static ImageBlendMode ParseBlendMode(string value)
+    {
+        return Enum.TryParse(value, ignoreCase: true, out ImageBlendMode mode)
+            ? mode
+            : ImageBlendMode.Normal;
     }
 
     private static int GetPositiveInt(string text, int fallback, int min, int max)

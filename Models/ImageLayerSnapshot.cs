@@ -6,4 +6,5 @@ public sealed record ImageLayerSnapshot(
     string Name,
     BitmapSource Bitmap,
     bool IsVisible,
-    double Opacity);
+    double Opacity,
+    ImageBlendMode BlendMode);
