@@ -25,8 +25,19 @@ public sealed class BatchJob : INotifyPropertyChanged
     public string? OutputPath
     {
         get => _outputPath;
-        set => SetField(ref _outputPath, value);
+        set
+        {
+            if (SetField(ref _outputPath, value))
+            {
+                OnPropertyChanged(nameof(HasOutput));
+                OnPropertyChanged(nameof(OutputFileName));
+            }
+        }
     }
+
+    public bool HasOutput => !string.IsNullOrWhiteSpace(OutputPath) && File.Exists(OutputPath);
+
+    public string OutputFileName => HasOutput ? Path.GetFileName(OutputPath!) : "";
 
     public string Status
     {
@@ -46,14 +57,20 @@ public sealed class BatchJob : INotifyPropertyChanged
         set => SetField(ref _isRunning, value);
     }
 
-    private void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
         {
-            return;
+            return false;
         }
 
         field = value;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

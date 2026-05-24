@@ -318,6 +318,40 @@ public partial class MainWindow : Window
         LoadImage(path);
     }
 
+    private void OpenJobOutput_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (!TryGetJobFromSender(sender, out BatchJob job) || !TryGetOutputPath(job, out string outputPath))
+        {
+            SetStatus("열 수 있는 완료 이미지가 없습니다.");
+            return;
+        }
+
+        if (!ReferenceEquals(JobList.SelectedItem, job))
+        {
+            JobList.SelectedItem = job;
+        }
+        else
+        {
+            LoadImage(outputPath);
+        }
+
+        SetStatus($"완료 이미지 열기: {Path.GetFileName(outputPath)}");
+    }
+
+    private void RevealJobOutput_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (!TryGetJobFromSender(sender, out BatchJob job) || !TryGetOutputPath(job, out string outputPath))
+        {
+            SetStatus("탐색기에서 열 완료 파일이 없습니다.");
+            return;
+        }
+
+        RevealFileInExplorer(outputPath);
+        SetStatus($"탐색기에서 표시: {Path.GetFileName(outputPath)}");
+    }
+
     private void RemoveBg_Click(object sender, RoutedEventArgs e)
     {
         if (!EnsureBitmap())
@@ -914,6 +948,34 @@ public partial class MainWindow : Window
         });
     }
 
+    private static void RevealFileInExplorer(string path)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            Arguments = $"/select,\"{path}\"",
+            UseShellExecute = true
+        });
+    }
+
+    private static bool TryGetJobFromSender(object sender, out BatchJob job)
+    {
+        if (sender is FrameworkElement { DataContext: BatchJob batchJob })
+        {
+            job = batchJob;
+            return true;
+        }
+
+        job = null!;
+        return false;
+    }
+
+    private static bool TryGetOutputPath(BatchJob job, out string outputPath)
+    {
+        outputPath = job.OutputPath ?? "";
+        return !string.IsNullOrWhiteSpace(outputPath) && File.Exists(outputPath);
+    }
+
     private void Preview_MouseWheel(object sender, MouseWheelEventArgs e)
     {
         if (_currentBitmap is null || !Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
@@ -1202,6 +1264,7 @@ public partial class MainWindow : Window
                 _queueCancellation.Token.ThrowIfCancellationRequested();
                 job.IsRunning = true;
                 job.Progress = 0;
+                job.OutputPath = null;
                 job.Status = "실행 중";
                 SetStatus($"업스케일 중: {job.FileName}");
 

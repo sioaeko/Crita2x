@@ -278,6 +278,7 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <TextBlock Text="{Binding FileName}"
                                                    TextTrimming="CharacterEllipsis"
@@ -296,6 +297,28 @@
                                                      Minimum="0"
                                                      Maximum="100"
                                                      Value="{Binding Progress}" />
+                                        <UniformGrid Grid.Row="3"
+                                                     Columns="2"
+                                                     Margin="0,9,0,0">
+                                            <Button Click="OpenJobOutput_Click"
+                                                    IsEnabled="{Binding HasOutput}"
+                                                    Margin="0,0,4,0"
+                                                    ToolTip="완료 이미지를 미리보기에서 열기">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="&#xE8A7;" Style="{StaticResource ButtonIconGlyph}" />
+                                                    <TextBlock Text="보기" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Click="RevealJobOutput_Click"
+                                                    IsEnabled="{Binding HasOutput}"
+                                                    Margin="4,0,0,0"
+                                                    ToolTip="탐색기에서 완료 파일 위치 열기">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="&#xE8B7;" Style="{StaticResource ButtonIconGlyph}" />
+                                                    <TextBlock Text="위치" />
+                                                </StackPanel>
+                                            </Button>
+                                        </UniformGrid>
                                     </Grid>
                                 </Border>
                             </DataTemplate>
