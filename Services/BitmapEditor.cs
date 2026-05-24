@@ -709,7 +709,7 @@ public static class BitmapEditor
         return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
     }
 
-    public static BitmapSource ApplyAlphaBrush(BitmapSource source, int centerX, int centerY, int radius, bool restore, double hardness)
+    public static BitmapSource ApplyAlphaBrush(BitmapSource source, int centerX, int centerY, int radius, bool restore, double hardness, BitmapSource? clipMask = null)
     {
         source = ToBgra32(source);
         int width = source.PixelWidth;
@@ -717,6 +717,7 @@ public static class BitmapEditor
         int stride = width * 4;
         byte[] pixels = new byte[stride * height];
         source.CopyPixels(pixels, stride, 0);
+        byte[]? clipPixels = CopyClipMask(clipMask, width, height);
 
         radius = Math.Clamp(radius, 2, 400);
         int minX = Math.Max(0, centerX - radius);
@@ -735,7 +736,15 @@ public static class BitmapEditor
                 }
 
                 double pressure = BrushPressure(distance, radius, hardness);
-                int index = (y * stride) + (x * 4) + 3;
+                int pixelIndex = (y * stride) + (x * 4);
+                double clip = ClipCoverage(clipPixels, pixelIndex);
+                if (clip <= 0)
+                {
+                    continue;
+                }
+
+                pressure *= clip;
+                int index = pixelIndex + 3;
 
                 if (restore)
                 {
@@ -751,7 +760,7 @@ public static class BitmapEditor
         return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
     }
 
-    public static BitmapSource ApplyDodgeBurnBrush(BitmapSource source, int centerX, int centerY, int radius, bool dodge, double strength, double hardness)
+    public static BitmapSource ApplyDodgeBurnBrush(BitmapSource source, int centerX, int centerY, int radius, bool dodge, double strength, double hardness, BitmapSource? clipMask = null)
     {
         source = ToBgra32(source);
         int width = source.PixelWidth;
@@ -759,6 +768,7 @@ public static class BitmapEditor
         int stride = width * 4;
         byte[] pixels = new byte[stride * height];
         source.CopyPixels(pixels, stride, 0);
+        byte[]? clipPixels = CopyClipMask(clipMask, width, height);
 
         radius = Math.Clamp(radius, 2, 400);
         strength = Math.Clamp(strength, 0.05, 1.0);
@@ -778,12 +788,18 @@ public static class BitmapEditor
                 }
 
                 int index = (y * stride) + (x * 4);
+                double clip = ClipCoverage(clipPixels, index);
+                if (clip <= 0)
+                {
+                    continue;
+                }
+
                 if (pixels[index + 3] == 0)
                 {
                     continue;
                 }
 
-                double pressure = BrushPressure(distance, radius, hardness) * strength * 0.9;
+                double pressure = BrushPressure(distance, radius, hardness) * strength * 0.9 * clip;
                 RgbToHsl(
                     pixels[index + 2] / 255.0,
                     pixels[index + 1] / 255.0,
@@ -820,7 +836,8 @@ public static class BitmapEditor
         int sourceCenterY,
         int radius,
         double strength,
-        double hardness)
+        double hardness,
+        BitmapSource? clipMask = null)
     {
         target = ToBgra32(target);
         sampleSource = ToBgra32(sampleSource);
@@ -837,6 +854,7 @@ public static class BitmapEditor
         byte[] sourcePixels = new byte[stride * height];
         target.CopyPixels(pixels, stride, 0);
         sampleSource.CopyPixels(sourcePixels, stride, 0);
+        byte[]? clipPixels = CopyClipMask(clipMask, width, height);
 
         radius = Math.Clamp(radius, 2, 400);
         strength = Math.Clamp(strength, 0.1, 1.0);
@@ -862,8 +880,14 @@ public static class BitmapEditor
                     continue;
                 }
 
-                double pressure = BrushPressure(distance, radius, hardness) * strength;
                 int targetIndex = (y * stride) + (x * 4);
+                double clip = ClipCoverage(clipPixels, targetIndex);
+                if (clip <= 0)
+                {
+                    continue;
+                }
+
+                double pressure = BrushPressure(distance, radius, hardness) * strength * clip;
                 int sourceIndex = (sourceY * stride) + (sourceX * 4);
                 for (int channel = 0; channel < 4; channel++)
                 {
@@ -876,7 +900,7 @@ public static class BitmapEditor
         return CreateBitmap(pixels, width, height, target.DpiX, target.DpiY);
     }
 
-    public static BitmapSource ApplyAutoRestoreBrush(BitmapSource target, BitmapSource restoreSource, int centerX, int centerY, int radius, int sensitivity, double strength, double hardness)
+    public static BitmapSource ApplyAutoRestoreBrush(BitmapSource target, BitmapSource restoreSource, int centerX, int centerY, int radius, int sensitivity, double strength, double hardness, BitmapSource? clipMask = null)
     {
         target = ToBgra32(target);
         restoreSource = ToBgra32(restoreSource);
@@ -894,6 +918,7 @@ public static class BitmapEditor
         target.CopyPixels(pixels, stride, 0);
         restoreSource.CopyPixels(restorePixels, stride, 0);
         byte[] alphaSnapshot = (byte[])pixels.Clone();
+        byte[]? clipPixels = CopyClipMask(clipMask, width, height);
 
         radius = Math.Clamp(radius, 2, 400);
         sensitivity = Math.Clamp(sensitivity, 20, 100);
@@ -954,8 +979,14 @@ public static class BitmapEditor
                     continue;
                 }
 
-                double pressure = BrushPressure(distance, radius, hardness);
                 int index = (y * stride) + (x * 4);
+                double clip = ClipCoverage(clipPixels, index);
+                if (clip <= 0)
+                {
+                    continue;
+                }
+
+                double pressure = BrushPressure(distance, radius, hardness) * clip;
                 int localIndex = ((y - minY) * localWidth) + (x - minX);
                 double currentAlpha = alphaSnapshot[index + 3] / 255.0;
                 double foregroundDistance = NearestColorDistance(restorePixels, index, foregroundSeeds);
@@ -1163,7 +1194,7 @@ public static class BitmapEditor
         return CreateBitmap(pixels, width, height, dpiX, dpiY);
     }
 
-    public static BitmapSource ApplyMaskBrush(BitmapSource mask, int centerX, int centerY, int radius, bool reveal, double strength, double hardness)
+    public static BitmapSource ApplyMaskBrush(BitmapSource mask, int centerX, int centerY, int radius, bool reveal, double strength, double hardness, BitmapSource? clipMask = null)
     {
         mask = ToBgra32(mask);
         int width = mask.PixelWidth;
@@ -1171,6 +1202,7 @@ public static class BitmapEditor
         int stride = width * 4;
         byte[] pixels = new byte[stride * height];
         mask.CopyPixels(pixels, stride, 0);
+        byte[]? clipPixels = CopyClipMask(clipMask, width, height);
 
         radius = Math.Clamp(radius, 2, 400);
         strength = Math.Clamp(strength, 0.02, 1.0);
@@ -1189,8 +1221,14 @@ public static class BitmapEditor
                     continue;
                 }
 
-                double pressure = BrushPressure(distance, radius, hardness) * strength;
                 int index = (y * stride) + (x * 4);
+                double clip = ClipCoverage(clipPixels, index);
+                if (clip <= 0)
+                {
+                    continue;
+                }
+
+                double pressure = BrushPressure(distance, radius, hardness) * strength * clip;
                 double current = pixels[index] / 255.0;
                 double target = reveal ? 1.0 : 0.0;
                 byte value = ClampToByte((current + ((target - current) * pressure)) * 255.0);
@@ -1480,6 +1518,36 @@ public static class BitmapEditor
         double falloff = Math.Max(0.001, 1.0 - hardEdge);
         double t = (normalized - hardEdge) / falloff;
         return 1.0 - SmoothStep(t);
+    }
+
+    private static byte[]? CopyClipMask(BitmapSource? clipMask, int width, int height)
+    {
+        if (clipMask is null)
+        {
+            return null;
+        }
+
+        BitmapSource mask = ToBgra32(clipMask);
+        if (mask.PixelWidth != width || mask.PixelHeight != height)
+        {
+            mask = Resize(mask, width, height);
+        }
+
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        mask.CopyPixels(pixels, stride, 0);
+        return pixels;
+    }
+
+    private static double ClipCoverage(byte[]? clipPixels, int index)
+    {
+        if (clipPixels is null)
+        {
+            return 1.0;
+        }
+
+        double mask = (clipPixels[index] + clipPixels[index + 1] + clipPixels[index + 2]) / 765.0;
+        return mask * (clipPixels[index + 3] / 255.0);
     }
 
     private static double ApplyTone(byte value, double brightness, double contrastFactor)

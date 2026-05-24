@@ -87,6 +87,13 @@ public partial class MainWindow : Window
     private Point? _cloneStrokeStart;
     private Point? _cloneStrokeSourceStart;
     private BitmapSource? _cloneStrokeSourceBitmap;
+    private bool _brushClipHasSelection;
+    private bool _brushClipBlocked;
+    private BitmapSource? _brushClipMask;
+    private int _brushClipWidth;
+    private int _brushClipHeight;
+    private int _brushClipOffsetX;
+    private int _brushClipOffsetY;
     private Color _chromaColor = Colors.White;
     private int _historyIndex = -1;
     private int _historySequence;
@@ -2477,6 +2484,7 @@ public partial class MainWindow : Window
         ClearLayerResizeState();
         _brushHistoryCaptured = false;
         _lastBrushPoint = null;
+        ResetBrushClipCache();
         ClearCloneStroke();
         ImageHost.Cursor = null;
         Mouse.Capture(null);
@@ -2727,6 +2735,69 @@ public partial class MainWindow : Window
             (int)SelectionFeatherSlider.Value,
             target.DpiX,
             target.DpiY);
+        return true;
+    }
+
+    private void BeginBrushClipCache()
+    {
+        _brushClipHasSelection = TryGetSelection(out _);
+        _brushClipBlocked = false;
+        _brushClipMask = null;
+        _brushClipWidth = 0;
+        _brushClipHeight = 0;
+        _brushClipOffsetX = 0;
+        _brushClipOffsetY = 0;
+    }
+
+    private void ResetBrushClipCache()
+    {
+        _brushClipHasSelection = false;
+        _brushClipBlocked = false;
+        _brushClipMask = null;
+        _brushClipWidth = 0;
+        _brushClipHeight = 0;
+        _brushClipOffsetX = 0;
+        _brushClipOffsetY = 0;
+    }
+
+    private bool TryGetBrushClipMask(BitmapSource target, ImageLayer? layer, out BitmapSource? clipMask)
+    {
+        clipMask = null;
+        if (!_brushClipHasSelection)
+        {
+            return true;
+        }
+
+        if (_brushClipBlocked)
+        {
+            return false;
+        }
+
+        int offsetX = layer?.OffsetX ?? 0;
+        int offsetY = layer?.OffsetY ?? 0;
+        if (_brushClipMask is not null
+            && _brushClipWidth == target.PixelWidth
+            && _brushClipHeight == target.PixelHeight
+            && _brushClipOffsetX == offsetX
+            && _brushClipOffsetY == offsetY)
+        {
+            clipMask = _brushClipMask;
+            return true;
+        }
+
+        if (!TryGetSelectionMaskForTarget(target, layer, out BitmapSource mask))
+        {
+            _brushClipBlocked = true;
+            SetStatus("선택 영역이 브러시 대상과 겹치지 않습니다.");
+            return false;
+        }
+
+        _brushClipMask = mask;
+        _brushClipWidth = target.PixelWidth;
+        _brushClipHeight = target.PixelHeight;
+        _brushClipOffsetX = offsetX;
+        _brushClipOffsetY = offsetY;
+        clipMask = mask;
         return true;
     }
 
@@ -4462,6 +4533,7 @@ public partial class MainWindow : Window
         if (!_brushHistoryCaptured)
         {
             PushUndo();
+            BeginBrushClipCache();
             _brushHistoryCaptured = true;
         }
 
@@ -4503,6 +4575,11 @@ public partial class MainWindow : Window
             y -= activeLayer.OffsetY;
             BitmapSource mask = activeLayer.Mask
                 ?? BitmapEditor.CreateMask(activeLayer.Bitmap.PixelWidth, activeLayer.Bitmap.PixelHeight, 255, activeLayer.Bitmap.DpiX, activeLayer.Bitmap.DpiY);
+            if (!TryGetBrushClipMask(mask, activeLayer, out BitmapSource? maskClip))
+            {
+                return;
+            }
+
             BitmapSource editedMask = BitmapEditor.ApplyMaskBrush(
                 mask,
                 x,
@@ -4510,14 +4587,16 @@ public partial class MainWindow : Window
                 radius,
                 reveal: _maskRevealMode,
                 MaskBrushStrengthSlider.Value / 100.0,
-                MaskBrushHardnessSlider.Value / 100.0);
+                MaskBrushHardnessSlider.Value / 100.0,
+                maskClip);
             SetLayerMask(activeLayer, editedMask);
             return;
         }
 
         int layerOffsetX = 0;
         int layerOffsetY = 0;
-        if (GetActiveLayer() is ImageLayer editLayer)
+        ImageLayer? editLayer = GetActiveLayer() as ImageLayer;
+        if (editLayer is not null)
         {
             layerOffsetX = editLayer.OffsetX;
             layerOffsetY = editLayer.OffsetY;
@@ -4527,6 +4606,11 @@ public partial class MainWindow : Window
 
         BitmapSource? target = GetEditableBitmap();
         if (target is null)
+        {
+            return;
+        }
+
+        if (!TryGetBrushClipMask(target, editLayer, out BitmapSource? clipMask))
         {
             return;
         }
@@ -4551,7 +4635,8 @@ public partial class MainWindow : Window
                 sourceY,
                 radius,
                 CloneStrengthSlider.Value / 100.0,
-                BrushHardnessSlider.Value / 100.0);
+                BrushHardnessSlider.Value / 100.0,
+                clipMask);
         }
         else if (_autoRestoreMode)
         {
@@ -4563,7 +4648,8 @@ public partial class MainWindow : Window
                 radius,
                 (int)AutoRestoreSensitivitySlider.Value,
                 AutoRestoreStrengthSlider.Value / 100.0,
-                BrushHardnessSlider.Value / 100.0);
+                BrushHardnessSlider.Value / 100.0,
+                clipMask);
         }
         else if (_dodgeMode || _burnMode)
         {
@@ -4574,7 +4660,8 @@ public partial class MainWindow : Window
                 radius,
                 dodge: _dodgeMode,
                 DodgeBurnStrengthSlider.Value / 100.0,
-                BrushHardnessSlider.Value / 100.0);
+                BrushHardnessSlider.Value / 100.0,
+                clipMask);
         }
         else
         {
@@ -4584,7 +4671,8 @@ public partial class MainWindow : Window
                 y,
                 radius,
                 restore: _restoreMode,
-                BrushHardnessSlider.Value / 100.0);
+                BrushHardnessSlider.Value / 100.0,
+                clipMask);
         }
 
         SetEditableBitmap(edited, refreshPreview: false);
@@ -4808,6 +4896,7 @@ public partial class MainWindow : Window
         _maskRevealMode = false;
         _lastBrushPoint = null;
         _cloneSourcePoint = null;
+        ResetBrushClipCache();
         ClearCloneStroke();
         CropRect.Visibility = Visibility.Collapsed;
         SelectionRect.Visibility = Visibility.Collapsed;
