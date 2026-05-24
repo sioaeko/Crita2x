@@ -751,6 +751,66 @@ public static class BitmapEditor
         return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
     }
 
+    public static BitmapSource ApplyDodgeBurnBrush(BitmapSource source, int centerX, int centerY, int radius, bool dodge, double strength, double hardness)
+    {
+        source = ToBgra32(source);
+        int width = source.PixelWidth;
+        int height = source.PixelHeight;
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        source.CopyPixels(pixels, stride, 0);
+
+        radius = Math.Clamp(radius, 2, 400);
+        strength = Math.Clamp(strength, 0.05, 1.0);
+        int minX = Math.Max(0, centerX - radius);
+        int maxX = Math.Min(width - 1, centerX + radius);
+        int minY = Math.Max(0, centerY - radius);
+        int maxY = Math.Min(height - 1, centerY + radius);
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            for (int x = minX; x <= maxX; x++)
+            {
+                double distance = Math.Sqrt(((x - centerX) * (x - centerX)) + ((y - centerY) * (y - centerY)));
+                if (distance > radius)
+                {
+                    continue;
+                }
+
+                int index = (y * stride) + (x * 4);
+                if (pixels[index + 3] == 0)
+                {
+                    continue;
+                }
+
+                double pressure = BrushPressure(distance, radius, hardness) * strength * 0.9;
+                RgbToHsl(
+                    pixels[index + 2] / 255.0,
+                    pixels[index + 1] / 255.0,
+                    pixels[index] / 255.0,
+                    out double hue,
+                    out double saturation,
+                    out double lightness);
+                lightness = dodge
+                    ? lightness + ((1.0 - lightness) * pressure)
+                    : lightness * (1.0 - pressure);
+
+                HslToRgb(
+                    hue,
+                    saturation,
+                    Math.Clamp(lightness, 0, 1),
+                    out double r,
+                    out double g,
+                    out double b);
+                pixels[index] = ClampToByte(b * 255);
+                pixels[index + 1] = ClampToByte(g * 255);
+                pixels[index + 2] = ClampToByte(r * 255);
+            }
+        }
+
+        return CreateBitmap(pixels, width, height, source.DpiX, source.DpiY);
+    }
+
     public static BitmapSource ApplyCloneStampBrush(
         BitmapSource target,
         BitmapSource sampleSource,

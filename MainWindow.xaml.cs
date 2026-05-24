@@ -58,6 +58,8 @@ public partial class MainWindow : Window
     private bool _restoreMode;
     private bool _autoRestoreMode;
     private bool _cloneStampMode;
+    private bool _dodgeMode;
+    private bool _burnMode;
     private bool _maskHideMode;
     private bool _maskRevealMode;
     private bool _brushHistoryCaptured;
@@ -489,6 +491,8 @@ public partial class MainWindow : Window
         _restoreMode = false;
         _autoRestoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
@@ -586,6 +590,8 @@ public partial class MainWindow : Window
         _restoreMode = false;
         _autoRestoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
@@ -605,6 +611,8 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _autoRestoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
@@ -629,6 +637,8 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
@@ -662,6 +672,8 @@ public partial class MainWindow : Window
         _eraseMode = false;
         _restoreMode = false;
         _autoRestoreMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
@@ -678,6 +690,58 @@ public partial class MainWindow : Window
         {
             SetStatus("복제 도장 활성화: Alt+클릭으로 원본 위치를 먼저 찍으세요.");
         }
+    }
+
+    private void Dodge_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        _dodgeMode = !_dodgeMode;
+        _burnMode = false;
+        _eraseMode = false;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        _cloneStampMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
+        _selectionMode = false;
+        ClearLassoMode();
+        _magicWandMode = false;
+        _isSelecting = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
+        _pickChroma = false;
+        ClearCloneStroke();
+        UpdateBrushState();
+    }
+
+    private void Burn_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        _burnMode = !_burnMode;
+        _dodgeMode = false;
+        _eraseMode = false;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        _cloneStampMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
+        _selectionMode = false;
+        ClearLassoMode();
+        _magicWandMode = false;
+        _isSelecting = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
+        _pickChroma = false;
+        ClearCloneStroke();
+        UpdateBrushState();
     }
 
     private void RotateLeft_Click(object sender, RoutedEventArgs e)
@@ -711,6 +775,8 @@ public partial class MainWindow : Window
         _restoreMode = false;
         _autoRestoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
@@ -776,6 +842,8 @@ public partial class MainWindow : Window
         _restoreMode = false;
         _autoRestoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _moveLayerMode = false;
@@ -807,6 +875,8 @@ public partial class MainWindow : Window
         _restoreMode = false;
         _autoRestoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _moveLayerMode = false;
@@ -839,6 +909,8 @@ public partial class MainWindow : Window
         _restoreMode = false;
         _autoRestoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _moveLayerMode = false;
@@ -1363,6 +1435,8 @@ public partial class MainWindow : Window
         _restoreMode = false;
         _autoRestoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _selectionMode = false;
         ClearLassoMode();
         _magicWandMode = false;
@@ -1387,6 +1461,8 @@ public partial class MainWindow : Window
         _restoreMode = false;
         _autoRestoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _selectionMode = false;
         ClearLassoMode();
         _magicWandMode = false;
@@ -1554,6 +1630,8 @@ public partial class MainWindow : Window
         _restoreMode = false;
         _autoRestoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _pickChroma = false;
@@ -4292,6 +4370,16 @@ public partial class MainWindow : Window
             return "복제 도장";
         }
 
+        if (_dodgeMode)
+        {
+            return "닷지 브러시";
+        }
+
+        if (_burnMode)
+        {
+            return "번 브러시";
+        }
+
         return _restoreMode ? "복원 브러시" : "알파 지우개";
     }
 
@@ -4475,6 +4563,17 @@ public partial class MainWindow : Window
                 AutoRestoreStrengthSlider.Value / 100.0,
                 BrushHardnessSlider.Value / 100.0);
         }
+        else if (_dodgeMode || _burnMode)
+        {
+            edited = BitmapEditor.ApplyDodgeBurnBrush(
+                target,
+                x,
+                y,
+                radius,
+                dodge: _dodgeMode,
+                DodgeBurnStrengthSlider.Value / 100.0,
+                BrushHardnessSlider.Value / 100.0);
+        }
         else
         {
             edited = BitmapEditor.ApplyAlphaBrush(
@@ -4497,7 +4596,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        bool restorativeBrush = _restoreMode || _autoRestoreMode || _maskRevealMode || _cloneStampMode;
+        bool restorativeBrush = _restoreMode || _autoRestoreMode || _maskRevealMode || _cloneStampMode || _dodgeMode;
+        bool warmBrush = _burnMode || _eraseMode || _maskHideMode;
         bool maskBrush = _maskHideMode || _maskRevealMode;
         double size = (maskBrush ? MaskBrushSizeSlider.Value : BrushSizeSlider.Value) * 2;
         double hardness = maskBrush ? MaskBrushHardnessSlider.Value : BrushHardnessSlider.Value;
@@ -4506,7 +4606,9 @@ public partial class MainWindow : Window
         BrushGhost.Height = size;
         BrushGhost.Stroke = restorativeBrush ? FindBrush("AccentBrush") : FindBrush("AccentWarmBrush");
         BrushGhost.StrokeThickness = hardness > 82 ? 2.6 : 2;
-        BrushGhost.Fill = new SolidColorBrush(restorativeBrush ? Color.FromArgb(fillAlpha, 94, 234, 212) : Color.FromArgb(fillAlpha, 255, 184, 107));
+        BrushGhost.Fill = new SolidColorBrush(warmBrush
+            ? Color.FromArgb(fillAlpha, 255, 184, 107)
+            : Color.FromArgb(fillAlpha, 94, 234, 212));
         Canvas.SetLeft(BrushGhost, imagePoint.X - (size / 2));
         Canvas.SetTop(BrushGhost, imagePoint.Y - (size / 2));
         BrushGhost.Visibility = Visibility.Visible;
@@ -4550,7 +4652,14 @@ public partial class MainWindow : Window
 
     private bool IsBrushModeActive()
     {
-        return _eraseMode || _restoreMode || _autoRestoreMode || _cloneStampMode || _maskHideMode || _maskRevealMode;
+        return _eraseMode
+            || _restoreMode
+            || _autoRestoreMode
+            || _cloneStampMode
+            || _dodgeMode
+            || _burnMode
+            || _maskHideMode
+            || _maskRevealMode;
     }
 
     private bool TryGetImagePoint(Point hostPoint, out Point imagePoint)
@@ -4602,6 +4711,8 @@ public partial class MainWindow : Window
             : _restoreMode ? "복원 브러시 활성화"
             : _autoRestoreMode ? "자동 복원 브러시 활성화: 전경으로 판단되는 부분만 복구"
             : _cloneStampMode ? (_cloneSourcePoint is null ? "복제 도장 활성화: Alt+클릭으로 원본 위치를 찍으세요." : "복제 도장 활성화: 드래그하면 샘플 위치를 따라 복제")
+            : _dodgeMode ? "닷지 브러시 활성화: 드래그하면 밝게 보정합니다."
+            : _burnMode ? "번 브러시 활성화: 드래그하면 어둡게 보정합니다."
             : _maskHideMode ? "레이어 마스크 숨김 브러시 활성화"
             : _maskRevealMode ? "레이어 마스크 복원 브러시 활성화"
             : "브러시 해제");
@@ -4613,6 +4724,8 @@ public partial class MainWindow : Window
         RestoreButton.Background = _restoreMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         AutoRestoreButton.Background = _autoRestoreMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         CloneStampButton.Background = _cloneStampMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+        DodgeButton.Background = _dodgeMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+        BurnButton.Background = _burnMode ? FindBrush("AccentWarmBrush") : FindBrush("PanelLiftBrush");
         MaskHideButton.Background = _maskHideMode ? FindBrush("AccentWarmBrush") : FindBrush("PanelLiftBrush");
         MaskRevealButton.Background = _maskRevealMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         UpdateCloneSourceMarker();
@@ -4687,6 +4800,8 @@ public partial class MainWindow : Window
         _restoreMode = false;
         _autoRestoreMode = false;
         _cloneStampMode = false;
+        _dodgeMode = false;
+        _burnMode = false;
         _maskHideMode = false;
         _maskRevealMode = false;
         _lastBrushPoint = null;

@@ -991,6 +991,18 @@
                                 </Grid>
                                 <Slider x:Name="CloneStrengthSlider" Minimum="10" Maximum="100" Value="86" />
 
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="닷지/번 강도" Style="{StaticResource ToolLabel}" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding ElementName=DodgeBurnStrengthSlider, Path=Value, StringFormat={}{0:F0}}"
+                                               Style="{StaticResource ToolLabel}" />
+                                </Grid>
+                                <Slider x:Name="DodgeBurnStrengthSlider" Minimum="5" Maximum="100" Value="36" />
+
                                 <UniformGrid Columns="2" Margin="0,8,0,0">
                                     <Button x:Name="EraserButton" Click="Eraser_Click" Margin="0,0,6,8">지우개</Button>
                                     <Button x:Name="RestoreButton" Click="Restore_Click" Margin="6,0,0,8">복원</Button>
@@ -1000,8 +1012,16 @@
                                             ToolTip="주변 전경과 비슷한 원본 픽셀만 자동으로 되살립니다.">자동 복원</Button>
                                     <Button x:Name="CloneStampButton"
                                             Click="CloneStamp_Click"
-                                            Margin="6,0,0,0"
+                                            Margin="6,0,0,8"
                                             ToolTip="Alt+클릭으로 원본 위치를 찍고 드래그하면 복제합니다.">복제 도장</Button>
+                                    <Button x:Name="DodgeButton"
+                                            Click="Dodge_Click"
+                                            Margin="0,0,6,0"
+                                            ToolTip="브러시로 밝은 부분을 자연스럽게 올립니다.">닷지</Button>
+                                    <Button x:Name="BurnButton"
+                                            Click="Burn_Click"
+                                            Margin="6,0,0,0"
+                                            ToolTip="브러시로 어두운 부분을 자연스럽게 눌러줍니다.">번</Button>
                                 </UniformGrid>
                             </StackPanel>
                         </ScrollViewer>
