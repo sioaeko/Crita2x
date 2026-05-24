@@ -90,6 +90,7 @@ public partial class MainWindow : Window
     private bool _suppressLayerControlUpdate;
     private bool _layerOpacityEditCaptured;
     private bool _layerVisibilityEditCaptured;
+    private bool _layerLockEditCaptured;
     private bool _suppressLevelsUpdate;
 
     public MainWindow()
@@ -452,7 +453,10 @@ public partial class MainWindow : Window
             GetEditableBitmap()!,
             (int)ToleranceSlider.Value,
             (int)SoftnessSlider.Value);
-        SetEditableBitmap(edited);
+        if (!SetEditableBitmap(edited))
+        {
+            return;
+        }
         RecordHistory("가장자리 누끼");
         SetStatus("가장자리 배경을 투명 처리했습니다.");
     }
@@ -490,7 +494,10 @@ public partial class MainWindow : Window
             _chromaColor,
             (int)ToleranceSlider.Value,
             (int)SoftnessSlider.Value);
-        SetEditableBitmap(edited);
+        if (!SetEditableBitmap(edited))
+        {
+            return;
+        }
         RecordHistory("색상 누끼");
         SetStatus($"색상 누끼 적용: RGB({_chromaColor.R}, {_chromaColor.G}, {_chromaColor.B})");
     }
@@ -503,7 +510,10 @@ public partial class MainWindow : Window
         }
 
         PushUndo();
-        SetEditableBitmap(BackgroundRemovalService.FeatherAlpha(GetEditableBitmap()!, radius: 2));
+        if (!SetEditableBitmap(BackgroundRemovalService.FeatherAlpha(GetEditableBitmap()!, radius: 2)))
+        {
+            return;
+        }
         RecordHistory("가장자리 정리");
         SetStatus("가장자리 알파를 부드럽게 정리했습니다.");
     }
@@ -516,7 +526,10 @@ public partial class MainWindow : Window
         }
 
         PushUndo();
-        SetEditableBitmap(BackgroundRemovalService.Defringe(GetEditableBitmap()!, amount: 55));
+        if (!SetEditableBitmap(BackgroundRemovalService.Defringe(GetEditableBitmap()!, amount: 55)))
+        {
+            return;
+        }
         RecordHistory("테두리 완화");
         SetStatus("반투명 테두리 색을 완화했습니다.");
     }
@@ -793,6 +806,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!EnsureLayerEditable(activeLayer, "마스크 편집"))
+        {
+            return;
+        }
+
         PushUndo();
         Int32Rect layerRect = ToLayerRect(rect, activeLayer);
         BitmapSource mask = BitmapEditor.CreateSelectionMask(
@@ -832,7 +850,10 @@ public partial class MainWindow : Window
             editRect,
             keepInside,
             (int)SelectionFeatherSlider.Value);
-        SetEditableBitmap(edited);
+        if (!SetEditableBitmap(edited))
+        {
+            return;
+        }
         RecordHistory(historyLabel);
         SetStatus(status);
     }
@@ -884,7 +905,10 @@ public partial class MainWindow : Window
             SharpenSlider.Value);
 
         PushUndo();
-        SetEditableBitmap(BitmapEditor.ApplyAdjustments(GetEditableBitmap()!, settings));
+        if (!SetEditableBitmap(BitmapEditor.ApplyAdjustments(GetEditableBitmap()!, settings)))
+        {
+            return;
+        }
         if (_restoreSourceBitmap is not null)
         {
             _restoreSourceBitmap = BitmapEditor.ApplyAdjustments(_restoreSourceBitmap, settings);
@@ -908,7 +932,10 @@ public partial class MainWindow : Window
 
         LevelSettings settings = GetLevelSettings();
         PushUndo();
-        SetEditableBitmap(BitmapEditor.ApplyLevels(GetEditableBitmap()!, settings));
+        if (!SetEditableBitmap(BitmapEditor.ApplyLevels(GetEditableBitmap()!, settings)))
+        {
+            return;
+        }
         if (_restoreSourceBitmap is not null)
         {
             _restoreSourceBitmap = BitmapEditor.ApplyLevels(_restoreSourceBitmap, settings);
@@ -1034,6 +1061,7 @@ public partial class MainWindow : Window
             OffsetX = activeLayer.OffsetX,
             OffsetY = activeLayer.OffsetY,
             IsVisible = activeLayer.IsVisible,
+            IsLocked = false,
             Opacity = activeLayer.Opacity,
             BlendMode = activeLayer.BlendMode
         };
@@ -1126,6 +1154,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!EnsureLayerEditable(activeLayer, "마스크 편집"))
+        {
+            return;
+        }
+
         PushUndo();
         SetLayerMask(activeLayer, BitmapEditor.CreateMask(activeLayer.Bitmap.PixelWidth, activeLayer.Bitmap.PixelHeight, 255, activeLayer.Bitmap.DpiX, activeLayer.Bitmap.DpiY));
         RefreshCompositeFromLayers();
@@ -1141,6 +1174,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!EnsureLayerEditable(activeLayer, "마스크 편집"))
+        {
+            return;
+        }
+
         PushUndo();
         SetLayerMask(activeLayer, null);
         RefreshCompositeFromLayers();
@@ -1153,6 +1191,11 @@ public partial class MainWindow : Window
         if (GetActiveLayer() is not ImageLayer activeLayer || activeLayer.Mask is null)
         {
             SetStatus("반전할 레이어 마스크가 없습니다.");
+            return;
+        }
+
+        if (!EnsureLayerEditable(activeLayer, "마스크 편집"))
+        {
             return;
         }
 
@@ -1241,6 +1284,60 @@ public partial class MainWindow : Window
         _layerVisibilityEditCaptured = true;
     }
 
+    private void LayerLock_Click(object sender, RoutedEventArgs e)
+    {
+        if (_suppressLayerRefresh)
+        {
+            return;
+        }
+
+        if (TryGetLayerFromSender(sender, out ImageLayer layer))
+        {
+            SelectLayer(layer);
+        }
+        else
+        {
+            if (GetActiveLayer() is not ImageLayer activeLayer)
+            {
+                return;
+            }
+
+            layer = activeLayer;
+        }
+
+        _layerLockEditCaptured = false;
+        UpdateLayerControls();
+        RecordHistory("레이어 잠금 변경");
+        SetStatus(layer.IsLocked
+            ? "선택 레이어를 잠갔습니다."
+            : "선택 레이어 잠금을 해제했습니다.");
+    }
+
+    private void LayerLock_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_layerLockEditCaptured || !TryGetLayerFromSender(sender, out _))
+        {
+            return;
+        }
+
+        PushUndo();
+        _layerLockEditCaptured = true;
+    }
+
+    private void LayerLockBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (_suppressLayerControlUpdate || GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            return;
+        }
+
+        PushUndo();
+        activeLayer.IsLocked = LayerLockBox.IsChecked == true;
+        UpdateLayerControls();
+        RecordHistory("레이어 잠금 변경");
+        SetStatus(activeLayer.IsLocked ? "선택 레이어를 잠갔습니다." : "선택 레이어 잠금을 해제했습니다.");
+    }
+
     private void LayerOpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_suppressLayerControlUpdate || GetActiveLayer() is not ImageLayer activeLayer)
@@ -1287,9 +1384,14 @@ public partial class MainWindow : Window
 
     private void MoveLayerMode_Click(object sender, RoutedEventArgs e)
     {
-        if (GetActiveLayer() is null)
+        if (GetActiveLayer() is not ImageLayer activeLayer)
         {
             SetStatus("이동할 레이어가 없습니다.");
+            return;
+        }
+
+        if (!EnsureLayerEditable(activeLayer, "이동"))
+        {
             return;
         }
 
@@ -1321,6 +1423,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!EnsureLayerEditable(activeLayer, "이동"))
+        {
+            return;
+        }
+
         int x = int.TryParse(LayerOffsetXBox.Text, out int parsedX) ? parsedX : activeLayer.OffsetX;
         int y = int.TryParse(LayerOffsetYBox.Text, out int parsedY) ? parsedY : activeLayer.OffsetY;
         if (x == activeLayer.OffsetX && y == activeLayer.OffsetY)
@@ -1342,6 +1449,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!EnsureLayerEditable(activeLayer, "이동"))
+        {
+            return;
+        }
+
         if (activeLayer.OffsetX == 0 && activeLayer.OffsetY == 0)
         {
             return;
@@ -1358,6 +1470,11 @@ public partial class MainWindow : Window
         if (_currentBitmap is null || GetActiveLayer() is not ImageLayer activeLayer)
         {
             SetStatus("중앙에 배치할 레이어가 없습니다.");
+            return;
+        }
+
+        if (!EnsureLayerEditable(activeLayer, "이동"))
+        {
             return;
         }
 
@@ -1397,6 +1514,11 @@ public partial class MainWindow : Window
         if (_currentBitmap is null || GetActiveLayer() is not ImageLayer activeLayer)
         {
             SetStatus("정렬할 레이어가 없습니다.");
+            return;
+        }
+
+        if (!EnsureLayerEditable(activeLayer, "정렬"))
+        {
             return;
         }
 
@@ -1665,6 +1787,18 @@ public partial class MainWindow : Window
         return false;
     }
 
+    private static bool TryGetLayerFromSender(object sender, out ImageLayer layer)
+    {
+        if (sender is FrameworkElement { DataContext: ImageLayer imageLayer })
+        {
+            layer = imageLayer;
+            return true;
+        }
+
+        layer = null!;
+        return false;
+    }
+
     private static bool TryGetOutputPath(BatchJob job, out string outputPath)
     {
         outputPath = job.OutputPath ?? "";
@@ -1701,6 +1835,8 @@ public partial class MainWindow : Window
 
         OpenLastOutputButton.IsEnabled = hasOutput;
         RevealLastOutputButton.IsEnabled = hasOutput;
+        ToolbarOpenLastOutputButton.IsEnabled = hasOutput;
+        ToolbarRevealLastOutputButton.IsEnabled = hasOutput;
         PanelOpenLastOutputButton.IsEnabled = hasOutput;
         PanelRevealLastOutputButton.IsEnabled = hasOutput;
 
@@ -2255,6 +2391,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!EnsureLayerEditable(activeLayer, "변형"))
+        {
+            return;
+        }
+
         _isResizingLayer = true;
         _layerResizeCaptured = false;
         _layerResizeHandle = handle;
@@ -2347,7 +2488,7 @@ public partial class MainWindow : Window
     private bool TryGetLayerResizeHandle(Point imagePoint, out LayerResizeHandle handle)
     {
         handle = LayerResizeHandle.None;
-        if (_currentBitmap is null || GetActiveLayer() is not ImageLayer activeLayer || !activeLayer.IsVisible)
+        if (_currentBitmap is null || GetActiveLayer() is not ImageLayer activeLayer || !activeLayer.IsVisible || activeLayer.IsLocked)
         {
             return false;
         }
@@ -3065,7 +3206,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.PropertyName is nameof(ImageLayer.Name))
+        if (e.PropertyName is nameof(ImageLayer.Name) or nameof(ImageLayer.IsLocked))
         {
             UpdateLayerControls();
         }
@@ -3086,6 +3227,22 @@ public partial class MainWindow : Window
         return _layers.LastOrDefault();
     }
 
+    private bool EnsureActiveLayerEditable(string action)
+    {
+        return GetActiveLayer() is not { } activeLayer || EnsureLayerEditable(activeLayer, action);
+    }
+
+    private bool EnsureLayerEditable(ImageLayer layer, string action)
+    {
+        if (!layer.IsLocked)
+        {
+            return true;
+        }
+
+        SetStatus($"잠긴 레이어는 {action}할 수 없습니다: {layer.Name}");
+        return false;
+    }
+
     private BitmapSource? GetEditableBitmap()
     {
         return GetActiveLayer()?.Bitmap ?? _currentBitmap;
@@ -3104,6 +3261,11 @@ public partial class MainWindow : Window
             return false;
         }
 
+        if (!EnsureLayerEditable(activeLayer, "마스크 편집"))
+        {
+            return false;
+        }
+
         if (activeLayer.Mask is null)
         {
             PushUndo();
@@ -3115,10 +3277,15 @@ public partial class MainWindow : Window
         return true;
     }
 
-    private void SetEditableBitmap(BitmapSource bitmap, bool refreshPreview = true)
+    private bool SetEditableBitmap(BitmapSource bitmap, bool refreshPreview = true)
     {
         if (GetActiveLayer() is ImageLayer activeLayer)
         {
+            if (!EnsureLayerEditable(activeLayer, "편집"))
+            {
+                return false;
+            }
+
             _suppressLayerRefresh = true;
             try
             {
@@ -3138,7 +3305,7 @@ public partial class MainWindow : Window
                 UpdateLayerControls();
             }
 
-            return;
+            return true;
         }
 
         _currentBitmap = bitmap;
@@ -3146,10 +3313,17 @@ public partial class MainWindow : Window
         {
             UpdatePreview(_currentBitmap, _currentPath);
         }
+
+        return true;
     }
 
     private void SetLayerMask(ImageLayer layer, BitmapSource? mask)
     {
+        if (!EnsureLayerEditable(layer, "마스크 편집"))
+        {
+            return;
+        }
+
         _suppressLayerRefresh = true;
         try
         {
@@ -3165,6 +3339,11 @@ public partial class MainWindow : Window
 
     private void SetLayerOffset(ImageLayer layer, int offsetX, int offsetY, bool refreshPreview = true)
     {
+        if (!EnsureLayerEditable(layer, "이동"))
+        {
+            return;
+        }
+
         _suppressLayerRefresh = true;
         try
         {
@@ -3216,6 +3395,11 @@ public partial class MainWindow : Window
         string historyLabel,
         string status)
     {
+        if (!EnsureLayerEditable(activeLayer, "크기 변경"))
+        {
+            return;
+        }
+
         width = Math.Clamp(width, 1, 32768);
         height = Math.Clamp(height, 1, 32768);
         PushUndo();
@@ -3253,6 +3437,11 @@ public partial class MainWindow : Window
         if (GetActiveLayer() is not ImageLayer activeLayer)
         {
             SetStatus("변형할 레이어가 없습니다.");
+            return;
+        }
+
+        if (!EnsureLayerEditable(activeLayer, "변형"))
+        {
             return;
         }
 
@@ -3363,7 +3552,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<ImageLayerSnapshot> CaptureLayers()
     {
         return _layers
-            .Select(layer => new ImageLayerSnapshot(layer.Name, layer.Bitmap, layer.Mask, layer.OffsetX, layer.OffsetY, layer.IsVisible, layer.Opacity, layer.BlendMode))
+            .Select(layer => new ImageLayerSnapshot(layer.Name, layer.Bitmap, layer.Mask, layer.OffsetX, layer.OffsetY, layer.IsVisible, layer.IsLocked, layer.Opacity, layer.BlendMode))
             .ToArray();
     }
 
@@ -3382,6 +3571,7 @@ public partial class MainWindow : Window
                     OffsetX = snapshot.OffsetX,
                     OffsetY = snapshot.OffsetY,
                     IsVisible = snapshot.IsVisible,
+                    IsLocked = snapshot.IsLocked,
                     Opacity = snapshot.Opacity,
                     BlendMode = snapshot.BlendMode
                 });
@@ -3431,21 +3621,25 @@ public partial class MainWindow : Window
         _suppressLayerControlUpdate = true;
         try
         {
+            bool canEditLayer = activeLayer is not null && !activeLayer.IsLocked;
             LayerOpacitySlider.IsEnabled = activeLayer is not null;
             LayerOpacitySlider.Value = activeLayer?.Opacity ?? 100;
             LayerOpacityText.Text = activeLayer is null ? "-" : $"{activeLayer.Opacity:F0}%";
+            LayerLockBox.IsEnabled = activeLayer is not null;
+            LayerLockBox.IsChecked = activeLayer?.IsLocked == true;
             LayerNameBox.IsEnabled = activeLayer is not null;
             LayerNameBox.Text = activeLayer?.Name ?? "";
             LayerBlendModeBox.IsEnabled = activeLayer is not null;
             SetComboByTag(LayerBlendModeBox, activeLayer?.BlendMode.ToString() ?? nameof(ImageBlendMode.Normal));
-            LayerWidthBox.IsEnabled = activeLayer is not null;
-            LayerHeightBox.IsEnabled = activeLayer is not null;
+            LayerWidthBox.IsEnabled = canEditLayer;
+            LayerHeightBox.IsEnabled = canEditLayer;
             LayerWidthBox.Text = activeLayer?.Bitmap.PixelWidth.ToString() ?? "";
             LayerHeightBox.Text = activeLayer?.Bitmap.PixelHeight.ToString() ?? "";
-            LayerOffsetXBox.IsEnabled = activeLayer is not null;
-            LayerOffsetYBox.IsEnabled = activeLayer is not null;
+            LayerOffsetXBox.IsEnabled = canEditLayer;
+            LayerOffsetYBox.IsEnabled = canEditLayer;
             LayerOffsetXBox.Text = activeLayer?.OffsetX.ToString() ?? "";
             LayerOffsetYBox.Text = activeLayer?.OffsetY.ToString() ?? "";
+            MoveLayerButton.IsEnabled = canEditLayer;
         }
         finally
         {
@@ -3676,7 +3870,10 @@ public partial class MainWindow : Window
         }
 
         PushUndo();
-        SetEditableBitmap(transform(GetEditableBitmap()!));
+        if (!SetEditableBitmap(transform(GetEditableBitmap()!)))
+        {
+            return;
+        }
         if (_restoreSourceBitmap is not null)
         {
             _restoreSourceBitmap = transform(_restoreSourceBitmap);
@@ -3705,6 +3902,11 @@ public partial class MainWindow : Window
         if (_cloneStampMode && _cloneSourcePoint is null)
         {
             SetStatus("복제 도장은 Alt+클릭으로 원본 위치를 먼저 찍어야 합니다.");
+            return;
+        }
+
+        if (!EnsureActiveLayerEditable("브러시 편집"))
+        {
             return;
         }
 
@@ -3974,6 +4176,11 @@ public partial class MainWindow : Window
         if (GetActiveLayer() is not ImageLayer activeLayer)
         {
             SetStatus("이동할 레이어가 없습니다.");
+            return false;
+        }
+
+        if (!EnsureLayerEditable(activeLayer, "이동"))
+        {
             return false;
         }
 

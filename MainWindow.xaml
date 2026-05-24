@@ -122,15 +122,35 @@
                             <TextBlock Text="전체 실행" />
                         </StackPanel>
                     </Button>
-                    <Button Click="Cancel_Click" ToolTip="실행 중지">
+                    <Button Click="Cancel_Click" Margin="0,0,8,0" ToolTip="실행 중지">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&#xE71A;" Style="{StaticResource ButtonIconGlyph}" />
                             <TextBlock Text="중지" />
                         </StackPanel>
                     </Button>
+                    <Button x:Name="ToolbarOpenLastOutputButton"
+                            Click="OpenLastOutput_Click"
+                            IsEnabled="False"
+                            Margin="0,0,8,0"
+                            ToolTip="최근 완료 이미지를 미리보기에서 열기">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8A7;" Style="{StaticResource ButtonIconGlyph}" />
+                            <TextBlock Text="결과 보기" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="ToolbarRevealLastOutputButton"
+                            Click="RevealLastOutput_Click"
+                            IsEnabled="False"
+                            Margin="0,0,8,0"
+                            ToolTip="탐색기에서 최근 완료 파일 위치 열기">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8B7;" Style="{StaticResource ButtonIconGlyph}" />
+                            <TextBlock Text="탐색기" />
+                        </StackPanel>
+                    </Button>
                     <Button Style="{StaticResource IconButton}"
                             Click="Undo_Click"
-                            Margin="8,0,4,0"
+                            Margin="0,0,4,0"
                             ToolTip="실행 취소">
                         <TextBlock Text="&#xE7A7;" Style="{StaticResource IconOnlyGlyph}" />
                     </Button>
@@ -1225,6 +1245,11 @@
                                         ValueChanged="LayerOpacitySlider_ValueChanged"
                                         PreviewMouseLeftButtonDown="LayerOpacitySlider_MouseDown"
                                         PreviewMouseLeftButtonUp="LayerOpacitySlider_MouseUp" />
+                                <CheckBox x:Name="LayerLockBox"
+                                          Content="레이어 잠금"
+                                          IsEnabled="False"
+                                          Click="LayerLockBox_Click"
+                                          Margin="0,8,0,0" />
 
                                 <TextBlock Text="변형" Style="{StaticResource SectionTitle}" />
                                 <Grid Margin="0,0,0,8">
@@ -1434,7 +1459,8 @@
                                     <DataTemplate>
                                         <Grid Margin="11">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="34" />
+                                                <ColumnDefinition Width="28" />
+                                                <ColumnDefinition Width="52" />
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
@@ -1443,7 +1469,20 @@
                                                       PreviewMouseLeftButtonDown="LayerVisibility_MouseDown"
                                                       VerticalAlignment="Center"
                                                       ToolTip="레이어 표시" />
-                                            <StackPanel Grid.Column="1">
+                                            <Border Grid.Column="1"
+                                                    Width="42"
+                                                    Height="42"
+                                                    Background="#101012"
+                                                    BorderBrush="{StaticResource LineBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6"
+                                                    ClipToBounds="True"
+                                                    VerticalAlignment="Top"
+                                                    Margin="0,0,10,0">
+                                                <Image Source="{Binding Bitmap}"
+                                                       Stretch="Uniform" />
+                                            </Border>
+                                            <StackPanel Grid.Column="2">
                                                 <TextBlock Text="{Binding Name}"
                                                            FontWeight="SemiBold"
                                                            TextTrimming="CharacterEllipsis" />
@@ -1463,12 +1502,24 @@
                                                            Style="{StaticResource MutedText}"
                                                            Margin="0,2,0,0"
                                                            TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding LockText}"
+                                                           Style="{StaticResource MutedText}"
+                                                           Margin="0,2,0,0"
+                                                           TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
-                                            <TextBlock Grid.Column="2"
-                                                       Text="{Binding OpacityText}"
-                                                       Style="{StaticResource MutedText}"
-                                                       VerticalAlignment="Center"
-                                                       Margin="10,0,0,0" />
+                                            <StackPanel Grid.Column="3"
+                                                        VerticalAlignment="Center"
+                                                        Margin="10,0,0,0">
+                                                <TextBlock Text="{Binding OpacityText}"
+                                                           Style="{StaticResource MutedText}"
+                                                           TextAlignment="Right" />
+                                                <CheckBox IsChecked="{Binding IsLocked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                          Click="LayerLock_Click"
+                                                          PreviewMouseLeftButtonDown="LayerLock_MouseDown"
+                                                          ToolTip="레이어 잠금"
+                                                          HorizontalAlignment="Right"
+                                                          Margin="0,6,0,0" />
+                                            </StackPanel>
                                         </Grid>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>

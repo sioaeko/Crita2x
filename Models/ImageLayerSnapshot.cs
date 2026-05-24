@@ -9,5 +9,6 @@ public sealed record ImageLayerSnapshot(
     int OffsetX,
     int OffsetY,
     bool IsVisible,
+    bool IsLocked,
     double Opacity,
     ImageBlendMode BlendMode);

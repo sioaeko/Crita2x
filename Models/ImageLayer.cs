@@ -12,6 +12,7 @@ public sealed class ImageLayer : INotifyPropertyChanged
     private int _offsetX;
     private int _offsetY;
     private bool _isVisible = true;
+    private bool _isLocked;
     private double _opacity = 100;
     private ImageBlendMode _blendMode = ImageBlendMode.Normal;
 
@@ -66,6 +67,22 @@ public sealed class ImageLayer : INotifyPropertyChanged
     {
         get => _isVisible;
         set => SetField(ref _isVisible, value);
+    }
+
+    public bool IsLocked
+    {
+        get => _isLocked;
+        set
+        {
+            if (_isLocked == value)
+            {
+                return;
+            }
+
+            _isLocked = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(LockText));
+        }
     }
 
     public int OffsetX
@@ -142,6 +159,8 @@ public sealed class ImageLayer : INotifyPropertyChanged
     public bool HasMask => Mask is not null;
 
     public string MaskText => HasMask ? "마스크" : "마스크 없음";
+
+    public string LockText => IsLocked ? "잠김" : "편집 가능";
 
     public string BlendModeText => BlendMode switch
     {
