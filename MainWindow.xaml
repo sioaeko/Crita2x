@@ -536,6 +536,70 @@
                                        TextAlignment="Center"
                                        Margin="0,8,0,0" />
                         </StackPanel>
+
+                        <Border x:Name="CompletionTray"
+                                Visibility="Collapsed"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Bottom"
+                                Margin="18"
+                                Background="#F0101012"
+                                BorderBrush="{StaticResource AccentBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="12,10">
+                            <Grid MinWidth="470"
+                                  MaxWidth="760">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <Border Width="30"
+                                        Height="30"
+                                        CornerRadius="15"
+                                        Background="#245EEAD4"
+                                        VerticalAlignment="Center"
+                                        Margin="0,0,10,0">
+                                    <TextBlock Text="&#xE73E;"
+                                               Style="{StaticResource IconOnlyGlyph}"
+                                               Foreground="{StaticResource AccentBrush}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                </Border>
+
+                                <StackPanel Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            Margin="0,0,16,0">
+                                    <TextBlock Text="작업 완료"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock x:Name="PreviewLastOutputNameText"
+                                               Text="완료 결과 없음"
+                                               Style="{StaticResource MutedText}"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+
+                                <Button Grid.Column="2"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Click="OpenLastOutput_Click"
+                                        Margin="0,0,8,0"
+                                        ToolTip="완료 이미지를 미리보기에서 열기">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE8A7;" Style="{StaticResource ButtonIconGlyph}" />
+                                        <TextBlock Text="결과 보기" Foreground="#071311" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Grid.Column="3"
+                                        Click="RevealLastOutput_Click"
+                                        ToolTip="탐색기에서 완료 파일 위치 열기">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE8B7;" Style="{StaticResource ButtonIconGlyph}" />
+                                        <TextBlock Text="폴더 열기" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </Border>
                     </Grid>
                 </Border>
 

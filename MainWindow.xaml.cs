@@ -2067,12 +2067,14 @@ public partial class MainWindow : Window
         ToolbarRevealLastOutputButton.IsEnabled = hasOutput;
         PanelOpenLastOutputButton.IsEnabled = hasOutput;
         PanelRevealLastOutputButton.IsEnabled = hasOutput;
+        CompletionTray.Visibility = hasOutput ? Visibility.Visible : Visibility.Collapsed;
 
         string outputName = hasOutput
             ? Path.GetFileName(_lastOutputPath!)
             : "완료 결과 없음";
         LastOutputNameText.Text = outputName;
         PanelLastOutputNameText.Text = outputName;
+        PreviewLastOutputNameText.Text = outputName;
     }
 
     private void SelectJobByOutput(string outputPath)
