@@ -47,7 +47,9 @@ public partial class MainWindow : Window
     private bool _isSelecting;
     private bool _moveLayerMode;
     private bool _isMovingLayer;
+    private bool _isResizingLayer;
     private bool _layerMoveCaptured;
+    private bool _layerResizeCaptured;
     private bool _pickChroma;
     private bool _eraseMode;
     private bool _restoreMode;
@@ -66,6 +68,12 @@ public partial class MainWindow : Window
     private Point _layerMoveStart;
     private int _layerMoveStartOffsetX;
     private int _layerMoveStartOffsetY;
+    private LayerResizeHandle _layerResizeHandle = LayerResizeHandle.None;
+    private Point _layerResizeAnchor;
+    private int _layerResizeStartOffsetX;
+    private int _layerResizeStartOffsetY;
+    private BitmapSource? _layerResizeStartBitmap;
+    private BitmapSource? _layerResizeStartMask;
     private Int32Rect? _selectionRect;
     private Point? _lastBrushPoint;
     private Point? _cloneSourcePoint;
@@ -1941,6 +1949,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!_selectionMode && !_cropMode && TryGetLayerResizeHandle(imagePoint, out LayerResizeHandle resizeHandle))
+        {
+            BeginLayerResize(resizeHandle, imagePoint);
+            return;
+        }
+
         if (_moveLayerMode)
         {
             if (GetActiveLayer() is not ImageLayer activeLayer)
@@ -1996,9 +2010,14 @@ public partial class MainWindow : Window
         if (TryGetImagePoint(point, out Point imagePoint))
         {
             UpdateBrushGhost(imagePoint);
+            UpdateLayerHandleCursor(imagePoint);
         }
 
-        if (_isMovingLayer && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
+        if (_isResizingLayer && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
+        {
+            ResizeActiveLayerTo(imagePoint);
+        }
+        else if (_isMovingLayer && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
         {
             MoveActiveLayerTo(imagePoint);
         }
@@ -2031,6 +2050,19 @@ public partial class MainWindow : Window
         }
 
         _isCropping = false;
+        if (_isResizingLayer)
+        {
+            _isResizingLayer = false;
+            if (_layerResizeCaptured)
+            {
+                RecordHistory("레이어 자유 변형");
+                if (GetActiveLayer() is ImageLayer activeLayer)
+                {
+                    SetStatus($"레이어 크기: {activeLayer.Bitmap.PixelWidth} x {activeLayer.Bitmap.PixelHeight}");
+                }
+            }
+        }
+
         if (_isMovingLayer)
         {
             _isMovingLayer = false;
@@ -2054,6 +2086,7 @@ public partial class MainWindow : Window
 
         _isPanning = false;
         _layerMoveCaptured = false;
+        ClearLayerResizeState();
         _brushHistoryCaptured = false;
         _lastBrushPoint = null;
         ClearCloneStroke();
@@ -2213,6 +2246,172 @@ public partial class MainWindow : Window
         }
 
         SetLayerOffset(activeLayer, offsetX, offsetY);
+    }
+
+    private void BeginLayerResize(LayerResizeHandle handle, Point imagePoint)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            return;
+        }
+
+        _isResizingLayer = true;
+        _layerResizeCaptured = false;
+        _layerResizeHandle = handle;
+        _layerResizeStartOffsetX = activeLayer.OffsetX;
+        _layerResizeStartOffsetY = activeLayer.OffsetY;
+        _layerResizeStartBitmap = activeLayer.Bitmap;
+        _layerResizeStartMask = activeLayer.Mask;
+        _layerResizeAnchor = handle switch
+        {
+            LayerResizeHandle.TopLeft => new Point(activeLayer.OffsetX + activeLayer.Bitmap.PixelWidth, activeLayer.OffsetY + activeLayer.Bitmap.PixelHeight),
+            LayerResizeHandle.TopRight => new Point(activeLayer.OffsetX, activeLayer.OffsetY + activeLayer.Bitmap.PixelHeight),
+            LayerResizeHandle.BottomLeft => new Point(activeLayer.OffsetX + activeLayer.Bitmap.PixelWidth, activeLayer.OffsetY),
+            LayerResizeHandle.BottomRight => new Point(activeLayer.OffsetX, activeLayer.OffsetY),
+            _ => imagePoint
+        };
+
+        ImageHost.Cursor = GetResizeCursor(handle);
+        Mouse.Capture(ImageHost);
+        SetStatus("레이어 자유 변형: 모서리를 드래그하세요. Shift를 누르면 비율이 고정됩니다.");
+    }
+
+    private void ResizeActiveLayerTo(Point imagePoint)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer || _layerResizeStartBitmap is null || _layerResizeHandle == LayerResizeHandle.None)
+        {
+            return;
+        }
+
+        double dx = imagePoint.X - _layerResizeAnchor.X;
+        double dy = imagePoint.Y - _layerResizeAnchor.Y;
+        double width = Math.Abs(dx);
+        double height = Math.Abs(dy);
+
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            double aspect = _layerResizeStartBitmap.PixelWidth / (double)Math.Max(1, _layerResizeStartBitmap.PixelHeight);
+            if (width / Math.Max(1, height) > aspect)
+            {
+                width = Math.Max(1, height * aspect);
+            }
+            else
+            {
+                height = Math.Max(1, width / aspect);
+            }
+
+            dx = Math.Sign(dx == 0 ? 1 : dx) * width;
+            dy = Math.Sign(dy == 0 ? 1 : dy) * height;
+        }
+
+        width = Math.Clamp(width, 1, 32768);
+        height = Math.Clamp(height, 1, 32768);
+        int newWidth = Math.Max(1, (int)Math.Round(width));
+        int newHeight = Math.Max(1, (int)Math.Round(height));
+        int offsetX = (int)Math.Round(Math.Min(_layerResizeAnchor.X, _layerResizeAnchor.X + dx));
+        int offsetY = (int)Math.Round(Math.Min(_layerResizeAnchor.Y, _layerResizeAnchor.Y + dy));
+
+        if (newWidth == activeLayer.Bitmap.PixelWidth
+            && newHeight == activeLayer.Bitmap.PixelHeight
+            && offsetX == activeLayer.OffsetX
+            && offsetY == activeLayer.OffsetY)
+        {
+            return;
+        }
+
+        if (!_layerResizeCaptured)
+        {
+            PushUndo();
+            _layerResizeCaptured = true;
+        }
+
+        _suppressLayerRefresh = true;
+        try
+        {
+            activeLayer.Bitmap = BitmapEditor.Resize(_layerResizeStartBitmap, newWidth, newHeight);
+            activeLayer.Mask = _layerResizeStartMask is null
+                ? null
+                : BitmapEditor.Resize(_layerResizeStartMask, newWidth, newHeight);
+            activeLayer.OffsetX = offsetX;
+            activeLayer.OffsetY = offsetY;
+        }
+        finally
+        {
+            _suppressLayerRefresh = false;
+        }
+
+        RefreshCompositeFromLayers();
+        SetStatus($"레이어 자유 변형: {newWidth} x {newHeight}");
+    }
+
+    private bool TryGetLayerResizeHandle(Point imagePoint, out LayerResizeHandle handle)
+    {
+        handle = LayerResizeHandle.None;
+        if (_currentBitmap is null || GetActiveLayer() is not ImageLayer activeLayer || !activeLayer.IsVisible)
+        {
+            return false;
+        }
+
+        double x = activeLayer.OffsetX;
+        double y = activeLayer.OffsetY;
+        double width = activeLayer.Bitmap.PixelWidth;
+        double height = activeLayer.Bitmap.PixelHeight;
+        double radius = Math.Max(7, 11 / Math.Max(_zoom, 0.1));
+        var handles = new (LayerResizeHandle Handle, Point Point)[]
+        {
+            (LayerResizeHandle.TopLeft, new Point(x, y)),
+            (LayerResizeHandle.TopRight, new Point(x + width, y)),
+            (LayerResizeHandle.BottomLeft, new Point(x, y + height)),
+            (LayerResizeHandle.BottomRight, new Point(x + width, y + height))
+        };
+
+        double bestDistance = double.MaxValue;
+        foreach ((LayerResizeHandle candidate, Point point) in handles)
+        {
+            double distance = Distance(imagePoint, point);
+            if (distance <= radius && distance < bestDistance)
+            {
+                handle = candidate;
+                bestDistance = distance;
+            }
+        }
+
+        return handle != LayerResizeHandle.None;
+    }
+
+    private void UpdateLayerHandleCursor(Point imagePoint)
+    {
+        if (_isPanning || _isMovingLayer || _isResizingLayer || IsBrushModeActive() || _selectionMode || _cropMode)
+        {
+            return;
+        }
+
+        ImageHost.Cursor = TryGetLayerResizeHandle(imagePoint, out LayerResizeHandle handle)
+            ? GetResizeCursor(handle)
+            : null;
+    }
+
+    private static Cursor GetResizeCursor(LayerResizeHandle handle)
+    {
+        return handle is LayerResizeHandle.TopLeft or LayerResizeHandle.BottomRight
+            ? Cursors.SizeNWSE
+            : Cursors.SizeNESW;
+    }
+
+    private void ClearLayerResizeState()
+    {
+        _isResizingLayer = false;
+        _layerResizeCaptured = false;
+        _layerResizeHandle = LayerResizeHandle.None;
+        _layerResizeStartBitmap = null;
+        _layerResizeStartMask = null;
+    }
+
+    private static double Distance(Point first, Point second)
+    {
+        double dx = first.X - second.X;
+        double dy = first.Y - second.Y;
+        return Math.Sqrt((dx * dx) + (dy * dy));
     }
 
     private void MoveActiveLayerToIndex(int targetIndex, string historyLabel, string status)
@@ -3796,6 +3995,7 @@ public partial class MainWindow : Window
         _moveLayerMode = false;
         _isMovingLayer = false;
         _layerMoveCaptured = false;
+        ClearLayerResizeState();
         _pickChroma = false;
         _eraseMode = false;
         _restoreMode = false;
@@ -3895,4 +4095,13 @@ public partial class MainWindow : Window
         BitmapSource? RestoreSource,
         IReadOnlyList<ImageLayerSnapshot> Layers,
         int ActiveLayerIndex);
+
+    private enum LayerResizeHandle
+    {
+        None,
+        TopLeft,
+        TopRight,
+        BottomLeft,
+        BottomRight
+    }
 }
