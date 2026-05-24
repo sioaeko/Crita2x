@@ -888,6 +888,141 @@
                         </ScrollViewer>
                     </TabItem>
 
+                    <TabItem Header="레이어">
+                        <DockPanel Margin="16">
+                            <Border DockPanel.Dock="Top"
+                                    Background="#101214"
+                                    BorderBrush="{StaticResource LineBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Padding="12"
+                                    Margin="0,0,0,12">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="레이어" FontSize="16" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="LayerSummaryText"
+                                                   Text="열린 이미지 없음"
+                                                   Style="{StaticResource MutedText}"
+                                                   Margin="0,5,0,0" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1"
+                                                Orientation="Horizontal"
+                                                VerticalAlignment="Center">
+                                        <Button Style="{StaticResource IconButton}"
+                                                Click="AddBlankLayer_Click"
+                                                Margin="0,0,6,0"
+                                                ToolTip="빈 레이어 추가">
+                                            <TextBlock Text="&#xE710;" Style="{StaticResource IconOnlyGlyph}" />
+                                        </Button>
+                                        <Button Style="{StaticResource IconButton}"
+                                                Click="DuplicateLayer_Click"
+                                                Margin="0,0,6,0"
+                                                ToolTip="선택 레이어 복제">
+                                            <TextBlock Text="&#xE8C8;" Style="{StaticResource IconOnlyGlyph}" />
+                                        </Button>
+                                        <Button Style="{StaticResource IconButton}"
+                                                Click="DeleteLayer_Click"
+                                                ToolTip="선택 레이어 삭제">
+                                            <TextBlock Text="&#xE74D;" Style="{StaticResource IconOnlyGlyph}" />
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="불투명도" Style="{StaticResource ToolLabel}" Margin="0,0,0,4" />
+                                    <TextBlock x:Name="LayerOpacityText"
+                                               Grid.Column="1"
+                                               Text="100%"
+                                               Style="{StaticResource ToolLabel}"
+                                               Margin="0,0,0,4" />
+                                </Grid>
+                                <Slider x:Name="LayerOpacitySlider"
+                                        Minimum="0"
+                                        Maximum="100"
+                                        Value="100"
+                                        IsEnabled="False"
+                                        ValueChanged="LayerOpacitySlider_ValueChanged" />
+                                <Button Click="MergeVisibleLayers_Click"
+                                        Margin="0,6,0,0">보이는 레이어 병합</Button>
+                            </StackPanel>
+
+                            <ListBox x:Name="LayerList"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     SelectionChanged="LayerList_SelectionChanged">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="{x:Type ListBoxItem}">
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="0,0,0,7" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="{x:Type ListBoxItem}">
+                                                    <Border x:Name="Root"
+                                                            Background="#17171B"
+                                                            BorderBrush="#29282E"
+                                                            BorderThickness="1"
+                                                            CornerRadius="8">
+                                                        <ContentPresenter />
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="Root" Property="Background" Value="#202025" />
+                                                            <Setter TargetName="Root" Property="BorderBrush" Value="#3C3A40" />
+                                                        </Trigger>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter TargetName="Root" Property="Background" Value="#1D2C2A" />
+                                                            <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="11">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="34" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <CheckBox IsChecked="{Binding IsVisible, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                      Click="LayerVisibility_Click"
+                                                      VerticalAlignment="Center"
+                                                      ToolTip="레이어 표시" />
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding Name}"
+                                                           FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding Detail}"
+                                                           Style="{StaticResource MutedText}"
+                                                           Margin="0,4,0,0"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding OpacityText}"
+                                                       Style="{StaticResource MutedText}"
+                                                       VerticalAlignment="Center"
+                                                       Margin="10,0,0,0" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </TabItem>
+
                     <TabItem Header="기록">
                         <DockPanel Margin="16">
                             <Border DockPanel.Dock="Top"

@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -25,6 +26,7 @@ public partial class MainWindow : Window
 
     private readonly ObservableCollection<BatchJob> _jobs = [];
     private readonly ObservableCollection<HistoryEntry> _historyEntries = [];
+    private readonly ObservableCollection<ImageLayer> _layers = [];
     private readonly string[] _supportedExtensions = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"];
     private readonly Stack<ImageState> _undoStack = new();
     private readonly Stack<ImageState> _redoStack = new();
@@ -57,12 +59,16 @@ public partial class MainWindow : Window
     private int _historySequence;
     private bool _suppressHistorySelection;
     private bool _compareMode;
+    private bool _suppressLayerSelection;
+    private bool _suppressLayerRefresh;
+    private bool _suppressLayerControlUpdate;
 
     public MainWindow()
     {
         InitializeComponent();
         JobList.ItemsSource = _jobs;
         HistoryList.ItemsSource = _historyEntries;
+        LayerList.ItemsSource = _layers;
         ResizeSlider.ValueChanged += (_, _) => ResizeBox.Text = ((int)ResizeSlider.Value).ToString();
     }
 
@@ -318,11 +324,11 @@ public partial class MainWindow : Window
         }
 
         PushUndo();
-        _currentBitmap = BackgroundRemovalService.RemoveBorderBackground(
-            _currentBitmap!,
+        BitmapSource edited = BackgroundRemovalService.RemoveBorderBackground(
+            GetEditableBitmap()!,
             (int)ToleranceSlider.Value,
             (int)SoftnessSlider.Value);
-        UpdatePreview(_currentBitmap, _currentPath);
+        SetEditableBitmap(edited);
         RecordHistory("가장자리 누끼");
         SetStatus("가장자리 배경을 투명 처리했습니다.");
     }
@@ -345,12 +351,12 @@ public partial class MainWindow : Window
         }
 
         PushUndo();
-        _currentBitmap = BackgroundRemovalService.ChromaKey(
-            _currentBitmap!,
+        BitmapSource edited = BackgroundRemovalService.ChromaKey(
+            GetEditableBitmap()!,
             _chromaColor,
             (int)ToleranceSlider.Value,
             (int)SoftnessSlider.Value);
-        UpdatePreview(_currentBitmap, _currentPath);
+        SetEditableBitmap(edited);
         RecordHistory("색상 누끼");
         SetStatus($"색상 누끼 적용: RGB({_chromaColor.R}, {_chromaColor.G}, {_chromaColor.B})");
     }
@@ -363,8 +369,7 @@ public partial class MainWindow : Window
         }
 
         PushUndo();
-        _currentBitmap = BackgroundRemovalService.FeatherAlpha(_currentBitmap!, radius: 2);
-        UpdatePreview(_currentBitmap, _currentPath);
+        SetEditableBitmap(BackgroundRemovalService.FeatherAlpha(GetEditableBitmap()!, radius: 2));
         RecordHistory("가장자리 정리");
         SetStatus("가장자리 알파를 부드럽게 정리했습니다.");
     }
@@ -377,8 +382,7 @@ public partial class MainWindow : Window
         }
 
         PushUndo();
-        _currentBitmap = BackgroundRemovalService.Defringe(_currentBitmap!, amount: 55);
-        UpdatePreview(_currentBitmap, _currentPath);
+        SetEditableBitmap(BackgroundRemovalService.Defringe(GetEditableBitmap()!, amount: 55));
         RecordHistory("테두리 완화");
         SetStatus("반투명 테두리 색을 완화했습니다.");
     }
@@ -392,13 +396,12 @@ public partial class MainWindow : Window
 
         PushUndo();
         Int32Rect trimRect = BitmapEditor.GetTransparentBounds(_currentBitmap!);
-        _currentBitmap = BitmapEditor.Crop(_currentBitmap!, trimRect);
+        TransformAllLayers(bitmap => BitmapEditor.Crop(bitmap, trimRect));
         if (_restoreSourceBitmap is not null)
         {
             _restoreSourceBitmap = BitmapEditor.Crop(_restoreSourceBitmap, trimRect);
         }
 
-        UpdatePreview(_currentBitmap, _currentPath);
         RecordHistory("투명 여백 자르기");
         SetStatus("투명 여백을 잘랐습니다.");
     }
@@ -492,7 +495,7 @@ public partial class MainWindow : Window
             (int)Math.Round(CropRect.Width),
             (int)Math.Round(CropRect.Height));
 
-        _currentBitmap = BitmapEditor.Crop(_currentBitmap!, rect);
+        TransformAllLayers(bitmap => BitmapEditor.Crop(bitmap, rect));
         if (_restoreSourceBitmap is not null)
         {
             _restoreSourceBitmap = BitmapEditor.Crop(_restoreSourceBitmap, rect);
@@ -500,7 +503,6 @@ public partial class MainWindow : Window
 
         _cropMode = false;
         CropRect.Visibility = Visibility.Collapsed;
-        UpdatePreview(_currentBitmap, _currentPath);
         RecordHistory("자르기");
         SetStatus("선택 영역으로 잘랐습니다.");
     }
@@ -524,13 +526,12 @@ public partial class MainWindow : Window
         PushUndo();
         int width = Math.Max(1, (int)Math.Round(_currentBitmap.PixelWidth * ratio));
         int height = Math.Max(1, (int)Math.Round(_currentBitmap.PixelHeight * ratio));
-        _currentBitmap = BitmapEditor.Resize(_currentBitmap, width, height);
+        TransformAllLayers(bitmap => BitmapEditor.Resize(bitmap, width, height));
         if (_restoreSourceBitmap is not null)
         {
             _restoreSourceBitmap = BitmapEditor.Resize(_restoreSourceBitmap, width, height);
         }
 
-        UpdatePreview(_currentBitmap, _currentPath);
         RecordHistory($"리사이즈 {width} x {height}");
         SetStatus($"리사이즈 완료: {width} x {height}");
     }
@@ -550,13 +551,12 @@ public partial class MainWindow : Window
             SharpenSlider.Value);
 
         PushUndo();
-        _currentBitmap = BitmapEditor.ApplyAdjustments(_currentBitmap!, settings);
+        SetEditableBitmap(BitmapEditor.ApplyAdjustments(GetEditableBitmap()!, settings));
         if (_restoreSourceBitmap is not null)
         {
             _restoreSourceBitmap = BitmapEditor.ApplyAdjustments(_restoreSourceBitmap, settings);
         }
 
-        UpdatePreview(_currentBitmap, _currentPath);
         RecordHistory("색감 보정");
         SetStatus("보정을 적용했습니다.");
     }
@@ -576,6 +576,10 @@ public partial class MainWindow : Window
         PushUndo();
         _currentBitmap = _originalBitmap;
         _restoreSourceBitmap = _originalBitmap;
+        ClearLayers();
+        var layer = new ImageLayer("배경", _originalBitmap);
+        AddLayer(layer);
+        SelectLayer(layer);
         ResetInteractionModes();
         UpdatePreview(_currentBitmap, _currentPath);
         RecordHistory("원본 복원");
@@ -609,6 +613,130 @@ public partial class MainWindow : Window
     private void OpenOutputFolder_Click(object sender, RoutedEventArgs e)
     {
         OpenFolder(OutputFolderBox.Text);
+    }
+
+    private void AddBlankLayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        PushUndo();
+        int width = _currentBitmap!.PixelWidth;
+        int height = _currentBitmap.PixelHeight;
+        var layer = new ImageLayer($"레이어 {_layers.Count + 1}", BitmapEditor.CreateTransparent(width, height, _currentBitmap.DpiX, _currentBitmap.DpiY));
+        AddLayer(layer, Math.Clamp(LayerList.SelectedIndex + 1, 0, _layers.Count));
+        SelectLayer(layer);
+        RefreshCompositeFromLayers();
+        RecordHistory("빈 레이어 추가");
+        SetStatus("빈 레이어를 추가했습니다.");
+    }
+
+    private void DuplicateLayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            SetStatus("복제할 레이어가 없습니다.");
+            return;
+        }
+
+        PushUndo();
+        var layer = new ImageLayer($"{activeLayer.Name} 복사", activeLayer.Bitmap)
+        {
+            IsVisible = activeLayer.IsVisible,
+            Opacity = activeLayer.Opacity
+        };
+        AddLayer(layer, Math.Clamp(LayerList.SelectedIndex + 1, 0, _layers.Count));
+        SelectLayer(layer);
+        RefreshCompositeFromLayers();
+        RecordHistory("레이어 복제");
+        SetStatus("선택 레이어를 복제했습니다.");
+    }
+
+    private void DeleteLayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            return;
+        }
+
+        if (_layers.Count <= 1)
+        {
+            SetStatus("레이어는 최소 1개가 필요합니다.");
+            return;
+        }
+
+        PushUndo();
+        int index = LayerList.SelectedIndex;
+        RemoveLayer(activeLayer);
+        LayerList.SelectedIndex = Math.Clamp(index, 0, _layers.Count - 1);
+        RefreshCompositeFromLayers();
+        RecordHistory("레이어 삭제");
+        SetStatus("선택 레이어를 삭제했습니다.");
+    }
+
+    private void MergeVisibleLayers_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap() || _layers.Count == 0)
+        {
+            return;
+        }
+
+        PushUndo();
+        BitmapSource merged = CompositeVisibleLayers();
+        ClearLayers();
+        var layer = new ImageLayer("병합 레이어", merged);
+        AddLayer(layer);
+        SelectLayer(layer);
+        _currentBitmap = merged;
+        _restoreSourceBitmap = merged;
+        UpdatePreview(_currentBitmap, _currentPath);
+        RecordHistory("레이어 병합");
+        SetStatus("보이는 레이어를 병합했습니다.");
+    }
+
+    private void LayerList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressLayerSelection)
+        {
+            return;
+        }
+
+        UpdateLayerControls();
+    }
+
+    private void LayerVisibility_Click(object sender, RoutedEventArgs e)
+    {
+        if (_suppressLayerRefresh)
+        {
+            return;
+        }
+
+        RefreshCompositeFromLayers();
+        RecordHistory("레이어 표시 변경");
+        SetStatus("레이어 표시 상태를 변경했습니다.");
+    }
+
+    private void LayerOpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_suppressLayerControlUpdate || GetActiveLayer() is not ImageLayer activeLayer)
+        {
+            return;
+        }
+
+        _suppressLayerRefresh = true;
+        try
+        {
+            activeLayer.Opacity = LayerOpacitySlider.Value;
+        }
+        finally
+        {
+            _suppressLayerRefresh = false;
+        }
+
+        LayerOpacityText.Text = $"{activeLayer.Opacity:F0}%";
+        RefreshCompositeFromLayers();
     }
 
     private void ResetAdvancedSettings_Click(object sender, RoutedEventArgs e)
@@ -1244,6 +1372,10 @@ public partial class MainWindow : Window
             _currentBitmap = image;
             _currentPath = path;
             _compareMode = false;
+            ClearLayers();
+            var layer = new ImageLayer("배경", image);
+            AddLayer(layer);
+            SelectLayer(layer);
             ClearHistory();
             ResetInteractionModes();
             _zoom = 1.0;
@@ -1333,6 +1465,242 @@ public partial class MainWindow : Window
         Canvas.SetTop(CompareAfterBadge, 12);
     }
 
+    private void AddLayer(ImageLayer layer, int? index = null)
+    {
+        layer.PropertyChanged += Layer_PropertyChanged;
+        if (index is int insertIndex)
+        {
+            _layers.Insert(Math.Clamp(insertIndex, 0, _layers.Count), layer);
+        }
+        else
+        {
+            _layers.Add(layer);
+        }
+
+        UpdateLayerControls();
+    }
+
+    private void RemoveLayer(ImageLayer layer)
+    {
+        layer.PropertyChanged -= Layer_PropertyChanged;
+        _layers.Remove(layer);
+        UpdateLayerControls();
+    }
+
+    private void ClearLayers()
+    {
+        foreach (ImageLayer layer in _layers)
+        {
+            layer.PropertyChanged -= Layer_PropertyChanged;
+        }
+
+        _layers.Clear();
+        UpdateLayerControls();
+    }
+
+    private void Layer_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_suppressLayerRefresh)
+        {
+            return;
+        }
+
+        if (e.PropertyName is nameof(ImageLayer.IsVisible) or nameof(ImageLayer.Opacity) or nameof(ImageLayer.Bitmap))
+        {
+            RefreshCompositeFromLayers();
+            UpdateLayerControls();
+        }
+    }
+
+    private ImageLayer? GetActiveLayer()
+    {
+        if (LayerList is null)
+        {
+            return null;
+        }
+
+        if (LayerList.SelectedItem is ImageLayer selectedLayer)
+        {
+            return selectedLayer;
+        }
+
+        return _layers.LastOrDefault();
+    }
+
+    private BitmapSource? GetEditableBitmap()
+    {
+        return GetActiveLayer()?.Bitmap ?? _currentBitmap;
+    }
+
+    private void SetEditableBitmap(BitmapSource bitmap, bool refreshPreview = true)
+    {
+        if (GetActiveLayer() is ImageLayer activeLayer)
+        {
+            _suppressLayerRefresh = true;
+            try
+            {
+                activeLayer.Bitmap = bitmap;
+            }
+            finally
+            {
+                _suppressLayerRefresh = false;
+            }
+
+            if (refreshPreview)
+            {
+                RefreshCompositeFromLayers();
+            }
+            else
+            {
+                UpdateLayerControls();
+            }
+
+            return;
+        }
+
+        _currentBitmap = bitmap;
+        if (refreshPreview)
+        {
+            UpdatePreview(_currentBitmap, _currentPath);
+        }
+    }
+
+    private void TransformAllLayers(Func<BitmapSource, BitmapSource> transform)
+    {
+        if (_layers.Count == 0)
+        {
+            if (_currentBitmap is not null)
+            {
+                _currentBitmap = transform(_currentBitmap);
+                UpdatePreview(_currentBitmap, _currentPath);
+            }
+
+            return;
+        }
+
+        _suppressLayerRefresh = true;
+        try
+        {
+            foreach (ImageLayer layer in _layers)
+            {
+                layer.Bitmap = transform(layer.Bitmap);
+            }
+        }
+        finally
+        {
+            _suppressLayerRefresh = false;
+        }
+
+        RefreshCompositeFromLayers();
+    }
+
+    private BitmapSource CompositeVisibleLayers()
+    {
+        if (_layers.Count == 0)
+        {
+            return _currentBitmap ?? BitmapEditor.CreateTransparent(1, 1);
+        }
+
+        int width = Math.Max(1, _layers.Max(layer => layer.Bitmap.PixelWidth));
+        int height = Math.Max(1, _layers.Max(layer => layer.Bitmap.PixelHeight));
+        BitmapSource first = _layers[0].Bitmap;
+        var visibleLayers = _layers
+            .Where(layer => layer.IsVisible)
+            .Select(layer => (layer.Bitmap, layer.Opacity / 100.0));
+
+        return BitmapEditor.CompositeLayers(visibleLayers, width, height, first.DpiX, first.DpiY);
+    }
+
+    private void RefreshCompositeFromLayers()
+    {
+        if (_layers.Count == 0)
+        {
+            UpdateLayerControls();
+            return;
+        }
+
+        _currentBitmap = CompositeVisibleLayers();
+        UpdatePreview(_currentBitmap, _currentPath);
+        UpdateLayerControls();
+    }
+
+    private IReadOnlyList<ImageLayerSnapshot> CaptureLayers()
+    {
+        return _layers
+            .Select(layer => new ImageLayerSnapshot(layer.Name, layer.Bitmap, layer.IsVisible, layer.Opacity))
+            .ToArray();
+    }
+
+    private void RestoreLayers(IReadOnlyList<ImageLayerSnapshot> snapshots, int activeLayerIndex)
+    {
+        _suppressLayerSelection = true;
+        _suppressLayerRefresh = true;
+        try
+        {
+            ClearLayers();
+            foreach (ImageLayerSnapshot snapshot in snapshots)
+            {
+                AddLayer(new ImageLayer(snapshot.Name, snapshot.Bitmap)
+                {
+                    IsVisible = snapshot.IsVisible,
+                    Opacity = snapshot.Opacity
+                });
+            }
+
+            LayerList.SelectedIndex = _layers.Count == 0
+                ? -1
+                : Math.Clamp(activeLayerIndex, 0, _layers.Count - 1);
+        }
+        finally
+        {
+            _suppressLayerRefresh = false;
+            _suppressLayerSelection = false;
+        }
+
+        UpdateLayerControls();
+    }
+
+    private void SelectLayer(ImageLayer layer)
+    {
+        _suppressLayerSelection = true;
+        try
+        {
+            LayerList.SelectedItem = layer;
+            LayerList.ScrollIntoView(layer);
+        }
+        finally
+        {
+            _suppressLayerSelection = false;
+        }
+
+        UpdateLayerControls();
+    }
+
+    private void UpdateLayerControls()
+    {
+        if (LayerSummaryText is null)
+        {
+            return;
+        }
+
+        ImageLayer? activeLayer = GetActiveLayer();
+        LayerSummaryText.Text = _layers.Count == 0
+            ? "열린 이미지 없음"
+            : $"{_layers.Count}개 레이어 · 선택 {activeLayer?.Name ?? "-"}";
+
+        _suppressLayerControlUpdate = true;
+        try
+        {
+            LayerOpacitySlider.IsEnabled = activeLayer is not null;
+            LayerOpacitySlider.Value = activeLayer?.Opacity ?? 100;
+            LayerOpacityText.Text = activeLayer is null ? "-" : $"{activeLayer.Opacity:F0}%";
+        }
+        finally
+        {
+            _suppressLayerControlUpdate = false;
+        }
+    }
+
     private void ClearCurrentImage()
     {
         _currentBitmap = null;
@@ -1341,6 +1709,7 @@ public partial class MainWindow : Window
         _compareBaselineBitmap = null;
         _currentPath = null;
         _compareMode = false;
+        ClearLayers();
         ClearHistory();
         ResetInteractionModes();
         UpdatePreview(null, null);
@@ -1353,7 +1722,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        _undoStack.Push(new ImageState(_currentBitmap, _restoreSourceBitmap));
+        _undoStack.Push(new ImageState(_currentBitmap, _restoreSourceBitmap, CaptureLayers(), LayerList.SelectedIndex));
         TrimHistory(_undoStack, 30);
         _redoStack.Clear();
     }
@@ -1366,11 +1735,20 @@ public partial class MainWindow : Window
             return;
         }
 
-        to.Push(new ImageState(_currentBitmap, _restoreSourceBitmap));
+        to.Push(new ImageState(_currentBitmap, _restoreSourceBitmap, CaptureLayers(), LayerList.SelectedIndex));
         ImageState state = from.Pop();
-        _currentBitmap = state.Current;
         _restoreSourceBitmap = state.RestoreSource;
-        UpdatePreview(_currentBitmap, _currentPath);
+        RestoreLayers(state.Layers, state.ActiveLayerIndex);
+        if (state.Layers.Count > 0)
+        {
+            RefreshCompositeFromLayers();
+        }
+        else
+        {
+            _currentBitmap = state.Current;
+            UpdatePreview(_currentBitmap, _currentPath);
+        }
+
         RecordHistory(status);
         SetStatus(status);
     }
@@ -1399,10 +1777,19 @@ public partial class MainWindow : Window
         }
 
         _historyIndex = HistoryList.SelectedIndex;
-        _currentBitmap = entry.Bitmap;
         _restoreSourceBitmap = entry.RestoreSource;
+        RestoreLayers(entry.Layers, entry.ActiveLayerIndex);
         ResetInteractionModes();
-        UpdatePreview(_currentBitmap, _currentPath);
+        if (entry.Layers.Count > 0)
+        {
+            RefreshCompositeFromLayers();
+        }
+        else
+        {
+            _currentBitmap = entry.Bitmap;
+            UpdatePreview(_currentBitmap, _currentPath);
+        }
+
         UpdateHistorySummary();
         SetStatus($"기록 이동: {entry.Label}");
     }
@@ -1426,7 +1813,9 @@ public partial class MainWindow : Window
             label,
             BuildHistoryDetail(_currentBitmap),
             _currentBitmap,
-            _restoreSourceBitmap));
+            _restoreSourceBitmap,
+            CaptureLayers(),
+            LayerList.SelectedIndex));
 
         while (_historyEntries.Count > 50)
         {
@@ -1518,13 +1907,12 @@ public partial class MainWindow : Window
         }
 
         PushUndo();
-        _currentBitmap = transform(_currentBitmap!);
+        SetEditableBitmap(transform(GetEditableBitmap()!));
         if (_restoreSourceBitmap is not null)
         {
             _restoreSourceBitmap = transform(_restoreSourceBitmap);
         }
 
-        UpdatePreview(_currentBitmap, _currentPath);
         RecordHistory(status);
         SetStatus(status);
     }
@@ -1560,29 +1948,40 @@ public partial class MainWindow : Window
         }
 
         _lastBrushPoint = imagePoint;
-        UpdatePreview(_currentBitmap, _currentPath);
+        if (_layers.Count > 0)
+        {
+            RefreshCompositeFromLayers();
+        }
+        else
+        {
+            UpdatePreview(_currentBitmap, _currentPath);
+        }
+
         UpdateBrushGhost(imagePoint);
     }
 
     private void ApplyBrushPoint(Point point, int radius)
     {
-        if (_currentBitmap is null)
+        BitmapSource? target = GetEditableBitmap();
+        if (target is null)
         {
             return;
         }
 
         int x = (int)Math.Round(point.X);
         int y = (int)Math.Round(point.Y);
-        _currentBitmap = _autoRestoreMode
+        BitmapSource edited = _autoRestoreMode
             ? BitmapEditor.ApplyAutoRestoreBrush(
-                _currentBitmap,
+                target,
                 _restoreSourceBitmap!,
                 x,
                 y,
                 radius,
                 (int)AutoRestoreSensitivitySlider.Value,
                 AutoRestoreStrengthSlider.Value / 100.0)
-            : BitmapEditor.ApplyAlphaBrush(_currentBitmap, x, y, radius, restore: _restoreMode);
+            : BitmapEditor.ApplyAlphaBrush(target, x, y, radius, restore: _restoreMode);
+
+        SetEditableBitmap(edited, refreshPreview: false);
     }
 
     private void UpdateBrushGhost(Point imagePoint)
@@ -1626,10 +2025,11 @@ public partial class MainWindow : Window
 
     private bool CanUseAutoRestoreBrush()
     {
-        return _currentBitmap is not null
+        BitmapSource? target = GetEditableBitmap();
+        return target is not null
             && _restoreSourceBitmap is not null
-            && _currentBitmap.PixelWidth == _restoreSourceBitmap.PixelWidth
-            && _currentBitmap.PixelHeight == _restoreSourceBitmap.PixelHeight;
+            && target.PixelWidth == _restoreSourceBitmap.PixelWidth
+            && target.PixelHeight == _restoreSourceBitmap.PixelHeight;
     }
 
     private bool TryGetImagePoint(Point hostPoint, out Point imagePoint)
@@ -1751,5 +2151,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private sealed record ImageState(BitmapSource Current, BitmapSource? RestoreSource);
+    private sealed record ImageState(
+        BitmapSource Current,
+        BitmapSource? RestoreSource,
+        IReadOnlyList<ImageLayerSnapshot> Layers,
+        int ActiveLayerIndex);
 }

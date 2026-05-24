@@ -497,6 +497,76 @@ public static class BitmapEditor
         return new Int32Rect(left, top, right - left + 1, bottom - top + 1);
     }
 
+    public static BitmapSource CreateTransparent(int width, int height, double dpiX = 96, double dpiY = 96)
+    {
+        width = Math.Max(1, width);
+        height = Math.Max(1, height);
+        return CreateBitmap(new byte[width * height * 4], width, height, dpiX, dpiY);
+    }
+
+    public static BitmapSource CompositeLayers(
+        IEnumerable<(BitmapSource Bitmap, double Opacity)> layers,
+        int width,
+        int height,
+        double dpiX,
+        double dpiY)
+    {
+        width = Math.Max(1, width);
+        height = Math.Max(1, height);
+        int outputStride = width * 4;
+        byte[] output = new byte[outputStride * height];
+
+        foreach ((BitmapSource layerSource, double opacityValue) in layers)
+        {
+            double opacity = Math.Clamp(opacityValue, 0, 1);
+            if (opacity <= 0)
+            {
+                continue;
+            }
+
+            BitmapSource layer = ToBgra32(layerSource);
+            int layerWidth = Math.Min(width, layer.PixelWidth);
+            int layerHeight = Math.Min(height, layer.PixelHeight);
+            int layerStride = layer.PixelWidth * 4;
+            byte[] input = new byte[layerStride * layer.PixelHeight];
+            layer.CopyPixels(input, layerStride, 0);
+
+            for (int y = 0; y < layerHeight; y++)
+            {
+                int sourceRow = y * layerStride;
+                int outputRow = y * outputStride;
+                for (int x = 0; x < layerWidth; x++)
+                {
+                    int sourceIndex = sourceRow + (x * 4);
+                    int outputIndex = outputRow + (x * 4);
+                    double sourceAlpha = (input[sourceIndex + 3] / 255.0) * opacity;
+                    if (sourceAlpha <= 0)
+                    {
+                        continue;
+                    }
+
+                    double targetAlpha = output[outputIndex + 3] / 255.0;
+                    double outAlpha = sourceAlpha + (targetAlpha * (1.0 - sourceAlpha));
+                    if (outAlpha <= 0)
+                    {
+                        continue;
+                    }
+
+                    for (int channel = 0; channel < 3; channel++)
+                    {
+                        double sourceColor = input[sourceIndex + channel] * sourceAlpha;
+                        double targetColor = output[outputIndex + channel] * targetAlpha * (1.0 - sourceAlpha);
+                        output[outputIndex + channel] = ClampToByte((sourceColor + targetColor) / outAlpha);
+                    }
+
+                    output[outputIndex + 3] = ClampToByte(outAlpha * 255);
+                }
+            }
+        }
+
+        return CreateBitmap(output, width, height, dpiX, dpiY);
+    }
+
     public static void Save(BitmapSource source, string path)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? Environment.CurrentDirectory);
