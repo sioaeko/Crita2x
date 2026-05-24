@@ -44,6 +44,8 @@ public partial class MainWindow : Window
     private bool _cropMode;
     private bool _isCropping;
     private bool _selectionMode;
+    private bool _lassoMode;
+    private bool _isLassoSelecting;
     private bool _magicWandMode;
     private bool _isSelecting;
     private bool _moveLayerMode;
@@ -77,6 +79,7 @@ public partial class MainWindow : Window
     private BitmapSource? _layerResizeStartMask;
     private Int32Rect? _selectionRect;
     private BitmapSource? _selectionMask;
+    private readonly List<Point> _lassoPoints = [];
     private Point? _lastBrushPoint;
     private Point? _cloneSourcePoint;
     private Point? _cloneStrokeStart;
@@ -146,6 +149,13 @@ public partial class MainWindow : Window
         if (!IsTextInputFocused() && e.Key == Key.W)
         {
             MagicWandMode_Click(sender, e);
+            e.Handled = true;
+            return;
+        }
+
+        if (!IsTextInputFocused() && e.Key == Key.L)
+        {
+            LassoMode_Click(sender, e);
             e.Handled = true;
             return;
         }
@@ -480,6 +490,7 @@ public partial class MainWindow : Window
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
+        ClearLassoMode();
         _magicWandMode = false;
         _isSelecting = false;
         _moveLayerMode = false;
@@ -576,6 +587,7 @@ public partial class MainWindow : Window
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
+        ClearLassoMode();
         _magicWandMode = false;
         _isSelecting = false;
         _moveLayerMode = false;
@@ -594,6 +606,7 @@ public partial class MainWindow : Window
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
+        ClearLassoMode();
         _magicWandMode = false;
         _isSelecting = false;
         _moveLayerMode = false;
@@ -617,6 +630,7 @@ public partial class MainWindow : Window
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
+        ClearLassoMode();
         _magicWandMode = false;
         _isSelecting = false;
         _moveLayerMode = false;
@@ -649,6 +663,7 @@ public partial class MainWindow : Window
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
+        ClearLassoMode();
         _magicWandMode = false;
         _isSelecting = false;
         _moveLayerMode = false;
@@ -697,6 +712,7 @@ public partial class MainWindow : Window
         _maskHideMode = false;
         _maskRevealMode = false;
         _selectionMode = false;
+        ClearLassoMode();
         _magicWandMode = false;
         _isSelecting = false;
         _moveLayerMode = false;
@@ -750,6 +766,7 @@ public partial class MainWindow : Window
         }
 
         _selectionMode = !_selectionMode;
+        ClearLassoMode();
         _magicWandMode = false;
         _cropMode = false;
         _isCropping = false;
@@ -770,6 +787,38 @@ public partial class MainWindow : Window
         SetStatus(_selectionMode ? "캔버스에서 선택할 영역을 드래그하세요." : "선택 영역 도구 해제");
     }
 
+    private void LassoMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureBitmap())
+        {
+            return;
+        }
+
+        _lassoMode = !_lassoMode;
+        _selectionMode = false;
+        _magicWandMode = false;
+        _isSelecting = false;
+        _isLassoSelecting = false;
+        _cropMode = false;
+        _isCropping = false;
+        _eraseMode = false;
+        _restoreMode = false;
+        _autoRestoreMode = false;
+        _cloneStampMode = false;
+        _maskHideMode = false;
+        _maskRevealMode = false;
+        _moveLayerMode = false;
+        _isMovingLayer = false;
+        _pickChroma = false;
+        ClearCloneStroke();
+        ClearLassoPath();
+        CropRect.Visibility = Visibility.Collapsed;
+        UpdateBrushButtons();
+        UpdateSelectionButton();
+        UpdateMoveLayerButton();
+        SetStatus(_lassoMode ? "캔버스에서 자유롭게 드래그해 선택 영역을 그리세요." : "올가미 선택 해제");
+    }
+
     private void MagicWandMode_Click(object sender, RoutedEventArgs e)
     {
         if (!EnsureBitmap())
@@ -778,8 +827,10 @@ public partial class MainWindow : Window
         }
 
         _magicWandMode = !_magicWandMode;
+        ClearLassoMode();
         _selectionMode = false;
         _isSelecting = false;
+        _isLassoSelecting = false;
         _cropMode = false;
         _isCropping = false;
         _eraseMode = false;
@@ -1264,6 +1315,7 @@ public partial class MainWindow : Window
         _autoRestoreMode = false;
         _cloneStampMode = false;
         _selectionMode = false;
+        ClearLassoMode();
         _magicWandMode = false;
         _isSelecting = false;
         _moveLayerMode = false;
@@ -1287,6 +1339,7 @@ public partial class MainWindow : Window
         _autoRestoreMode = false;
         _cloneStampMode = false;
         _selectionMode = false;
+        ClearLassoMode();
         _magicWandMode = false;
         _isSelecting = false;
         _moveLayerMode = false;
@@ -1445,6 +1498,7 @@ public partial class MainWindow : Window
         _cropMode = false;
         _isCropping = false;
         _selectionMode = false;
+        ClearLassoMode();
         _magicWandMode = false;
         _isSelecting = false;
         _eraseMode = false;
@@ -2132,6 +2186,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_lassoMode)
+        {
+            BeginLassoSelection(imagePoint);
+            return;
+        }
+
         if (_magicWandMode)
         {
             ApplyMagicWandSelection(imagePoint);
@@ -2210,6 +2270,10 @@ public partial class MainWindow : Window
         {
             MoveActiveLayerTo(imagePoint);
         }
+        else if (_isLassoSelecting && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
+        {
+            AddLassoPoint(imagePoint);
+        }
         else if (_isSelecting && e.LeftButton == MouseButtonState.Pressed && TryGetImagePoint(point, out imagePoint))
         {
             SetSelectionFromPoints(_selectionStart, imagePoint);
@@ -2265,6 +2329,12 @@ public partial class MainWindow : Window
             }
         }
 
+        if (_isLassoSelecting)
+        {
+            _isLassoSelecting = false;
+            FinalizeLassoSelection();
+        }
+
         if (_isSelecting)
         {
             _isSelecting = false;
@@ -2311,6 +2381,109 @@ public partial class MainWindow : Window
             : new Int32Rect(x, y, width, height);
         _selectionMask = null;
         UpdateSelectionOverlay();
+    }
+
+    private void BeginLassoSelection(Point imagePoint)
+    {
+        _isLassoSelecting = true;
+        _lassoPoints.Clear();
+        _selectionMask = null;
+        _selectionRect = null;
+        SelectionMaskOverlay.Source = null;
+        SelectionMaskOverlay.Visibility = Visibility.Collapsed;
+        SelectionRect.Visibility = Visibility.Collapsed;
+        Mouse.Capture(ImageHost);
+        AddLassoPoint(imagePoint, force: true);
+    }
+
+    private void AddLassoPoint(Point imagePoint, bool force = false)
+    {
+        if (_currentBitmap is null)
+        {
+            return;
+        }
+
+        var clamped = new Point(
+            Math.Clamp(imagePoint.X, 0, Math.Max(0, _currentBitmap.PixelWidth - 1)),
+            Math.Clamp(imagePoint.Y, 0, Math.Max(0, _currentBitmap.PixelHeight - 1)));
+
+        if (!force && _lassoPoints.Count > 0)
+        {
+            Point previous = _lassoPoints[^1];
+            double dx = clamped.X - previous.X;
+            double dy = clamped.Y - previous.Y;
+            if ((dx * dx) + (dy * dy) < 4)
+            {
+                return;
+            }
+        }
+
+        _lassoPoints.Add(clamped);
+        UpdateLassoPath();
+    }
+
+    private void FinalizeLassoSelection()
+    {
+        if (_currentBitmap is null)
+        {
+            ClearLassoPath();
+            return;
+        }
+
+        if (_lassoPoints.Count < 3)
+        {
+            ClearLassoPath();
+            SetStatus("올가미 선택 영역이 너무 작습니다.");
+            return;
+        }
+
+        double minX = _lassoPoints.Min(point => point.X);
+        double minY = _lassoPoints.Min(point => point.Y);
+        double maxX = _lassoPoints.Max(point => point.X);
+        double maxY = _lassoPoints.Max(point => point.Y);
+        int left = Math.Clamp((int)Math.Floor(minX), 0, Math.Max(0, _currentBitmap.PixelWidth - 1));
+        int top = Math.Clamp((int)Math.Floor(minY), 0, Math.Max(0, _currentBitmap.PixelHeight - 1));
+        int right = Math.Clamp((int)Math.Ceiling(maxX), left + 1, _currentBitmap.PixelWidth);
+        int bottom = Math.Clamp((int)Math.Ceiling(maxY), top + 1, _currentBitmap.PixelHeight);
+        if (right - left < 2 || bottom - top < 2)
+        {
+            ClearLassoPath();
+            SetStatus("올가미 선택 영역이 너무 작습니다.");
+            return;
+        }
+
+        _selectionMask = BitmapEditor.CreatePolygonSelectionMask(
+            _currentBitmap.PixelWidth,
+            _currentBitmap.PixelHeight,
+            _lassoPoints,
+            (int)SelectionFeatherSlider.Value,
+            _currentBitmap.DpiX,
+            _currentBitmap.DpiY);
+        _selectionRect = new Int32Rect(left, top, right - left, bottom - top);
+        ClearLassoPath();
+        UpdateSelectionOverlay();
+        UpdateSelectionButton();
+        SetStatus($"올가미 선택: {right - left} x {bottom - top}");
+    }
+
+    private void UpdateLassoPath()
+    {
+        LassoPath.Points = new PointCollection(_lassoPoints);
+        LassoPath.Visibility = _lassoPoints.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ClearLassoPath()
+    {
+        _lassoPoints.Clear();
+        LassoPath.Points.Clear();
+        LassoPath.Visibility = Visibility.Collapsed;
+    }
+
+    private void ClearLassoMode()
+    {
+        _lassoMode = false;
+        _isLassoSelecting = false;
+        ClearLassoPath();
     }
 
     private void ApplyMagicWandSelection(Point imagePoint)
@@ -2536,9 +2709,12 @@ public partial class MainWindow : Window
         _selectionRect = null;
         _selectionMask = null;
         _isSelecting = false;
+        _isLassoSelecting = false;
+        ClearLassoPath();
         if (disableMode)
         {
             _selectionMode = false;
+            _lassoMode = false;
             _magicWandMode = false;
         }
 
@@ -3119,6 +3295,7 @@ public partial class MainWindow : Window
             SelectionRect.Visibility = Visibility.Collapsed;
             SelectionMaskOverlay.Source = null;
             SelectionMaskOverlay.Visibility = Visibility.Collapsed;
+            ClearLassoPath();
             GridOverlay.Visibility = Visibility.Collapsed;
             CloneSourceMarker.Visibility = Visibility.Collapsed;
             HideActiveLayerBounds();
@@ -4353,6 +4530,8 @@ public partial class MainWindow : Window
     {
         SelectionButton.Background = _selectionMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         SelectionButton.Foreground = _selectionMode ? new SolidColorBrush(Color.FromRgb(7, 19, 17)) : FindBrush("InkBrush");
+        LassoButton.Background = _lassoMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
+        LassoButton.Foreground = _lassoMode ? new SolidColorBrush(Color.FromRgb(7, 19, 17)) : FindBrush("InkBrush");
         MagicWandButton.Background = _magicWandMode ? FindBrush("AccentBrush") : FindBrush("PanelLiftBrush");
         MagicWandButton.Foreground = _magicWandMode ? new SolidColorBrush(Color.FromRgb(7, 19, 17)) : FindBrush("InkBrush");
     }
@@ -4401,6 +4580,8 @@ public partial class MainWindow : Window
         _cropMode = false;
         _isCropping = false;
         _selectionMode = false;
+        _lassoMode = false;
+        _isLassoSelecting = false;
         _magicWandMode = false;
         _isSelecting = false;
         _selectionRect = null;
@@ -4423,6 +4604,7 @@ public partial class MainWindow : Window
         SelectionRect.Visibility = Visibility.Collapsed;
         SelectionMaskOverlay.Source = null;
         SelectionMaskOverlay.Visibility = Visibility.Collapsed;
+        ClearLassoPath();
         BrushGhost.Visibility = Visibility.Collapsed;
         CloneSourceMarker.Visibility = Visibility.Collapsed;
         CropButton.Background = FindBrush("PanelLiftBrush");

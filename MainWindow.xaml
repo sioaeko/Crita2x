@@ -492,6 +492,11 @@
                                            Visibility="Collapsed"
                                            IsHitTestVisible="False"
                                            Stretch="Fill" />
+                                    <Polyline x:Name="LassoPath"
+                                              Visibility="Collapsed"
+                                              Stroke="{StaticResource AccentBrush}"
+                                              StrokeThickness="2"
+                                              StrokeLineJoin="Round" />
                                     <Rectangle x:Name="SelectionRect"
                                                Visibility="Collapsed"
                                                Stroke="{StaticResource InkBrush}"
@@ -1064,14 +1069,17 @@
                                     <Button x:Name="SelectionButton"
                                             Click="SelectionMode_Click"
                                             Margin="0,0,6,8">영역 선택</Button>
+                                    <Button x:Name="LassoButton"
+                                            Click="LassoMode_Click"
+                                            Margin="6,0,0,8">올가미</Button>
                                     <Button x:Name="MagicWandButton"
                                             Click="MagicWandMode_Click"
-                                            Margin="6,0,0,8">마술봉</Button>
-                                    <Button Click="ClearSelection_Click" Margin="0,0,6,8">선택 해제</Button>
-                                    <Button Click="ClearSelectionArea_Click" Margin="6,0,0,8">선택 지우기</Button>
-                                    <Button Click="KeepSelectionArea_Click" Margin="0,0,6,8">선택만 남기기</Button>
-                                    <Button Click="ExtractSelectionLayer_Click" Margin="6,0,0,8">새 레이어로</Button>
-                                    <Button Click="SelectionToMask_Click" Margin="0,0,6,0">마스크로</Button>
+                                            Margin="0,0,6,8">마술봉</Button>
+                                    <Button Click="ClearSelection_Click" Margin="6,0,0,8">선택 해제</Button>
+                                    <Button Click="ClearSelectionArea_Click" Margin="0,0,6,8">선택 지우기</Button>
+                                    <Button Click="KeepSelectionArea_Click" Margin="6,0,0,8">선택만 남기기</Button>
+                                    <Button Click="ExtractSelectionLayer_Click" Margin="0,0,6,0">새 레이어로</Button>
+                                    <Button Click="SelectionToMask_Click" Margin="6,0,0,0">마스크로</Button>
                                 </UniformGrid>
 
                                 <TextBlock Text="긴 변 리사이즈" Style="{StaticResource ToolLabel}" />

@@ -268,6 +268,60 @@ public static class BitmapEditor
         }
     }
 
+    public static BitmapSource CreatePolygonSelectionMask(
+        int width,
+        int height,
+        IReadOnlyList<Point> points,
+        int feather,
+        double dpiX = 96,
+        double dpiY = 96)
+    {
+        width = Math.Max(1, width);
+        height = Math.Max(1, height);
+        if (points.Count < 3)
+        {
+            return CreateMask(width, height, 0, dpiX, dpiY);
+        }
+
+        var visual = new DrawingVisual();
+        using (DrawingContext context = visual.RenderOpen())
+        {
+            context.DrawRectangle(Brushes.Black, null, new Rect(0, 0, width, height));
+
+            var geometry = new StreamGeometry();
+            using (StreamGeometryContext geometryContext = geometry.Open())
+            {
+                geometryContext.BeginFigure(points[0], isFilled: true, isClosed: true);
+                geometryContext.PolyLineTo(points.Skip(1).ToList(), isStroked: true, isSmoothJoin: true);
+            }
+
+            geometry.Freeze();
+            context.DrawGeometry(Brushes.White, null, geometry);
+        }
+
+        var rendered = new RenderTargetBitmap(width, height, dpiX, dpiY, PixelFormats.Pbgra32);
+        rendered.Render(visual);
+        rendered.Freeze();
+        BitmapSource maskBitmap = ToBgra32(rendered);
+        feather = Math.Clamp(feather, 0, 96);
+        if (feather <= 0)
+        {
+            return maskBitmap;
+        }
+
+        int stride = width * 4;
+        byte[] pixels = new byte[stride * height];
+        maskBitmap.CopyPixels(pixels, stride, 0);
+        int blurRadius = Math.Clamp((int)Math.Round(feather / 4.0), 1, 18);
+        pixels = BoxBlurFast(pixels, width, height, blurRadius);
+        if (feather > 36)
+        {
+            pixels = BoxBlurFast(pixels, width, height, Math.Max(1, blurRadius / 2));
+        }
+
+        return CreateBitmap(pixels, width, height, dpiX, dpiY);
+    }
+
     public static BitmapSource PlaceMaskOnCanvas(
         BitmapSource mask,
         int canvasWidth,
